@@ -1,5 +1,5 @@
 # chatter
-![image](https://github.com/ashutoshsuthar2020/chatter/assets/77433155/9e66acf8-a451-4841-a806-5488ffcac108)
+![image](https://github.com/ashutoshsuthar2020/chatter/assets/77433155/c294bac9-23ad-4c52-8405-1776a7ba81bf)
 
 Get started:
 
