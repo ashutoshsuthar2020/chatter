@@ -3,6 +3,7 @@ import Img1 from './../../assets/user.svg'
 import Avatar from "./../../assets/user.svg"
 import Input from "./../../components/Input"
 import {io} from 'socket.io-client'
+import { Peer } from "peerjs";
 
 const Dashboard = ()=>{
     const [user, setUser] = useState(JSON.parse(localStorage.getItem('user:detail')));
@@ -10,8 +11,13 @@ const Dashboard = ()=>{
     const [messages, setMessages] = useState({});
     const [message, setMessage] = useState('');
     const [users,setUsers] = useState([]);
+    const [activeUsers,setActiveUsers] = useState([]);
     const [socket,setSocket] = useState(null);
     const messageRef = useRef(null);
+    // const remoteVideoRef = useRef();
+    // const currentVideoRef = useRef();
+    // const peerInstance = useRef();
+
     useEffect(() => {
         setSocket(io('http://localhost:8080'))
     }, []);
@@ -19,16 +25,43 @@ const Dashboard = ()=>{
     useEffect(() => {
         socket?.emit('addUser', user?.id);
         socket?.on('getUsers',users => {
-            console.log('activeUsers :>>',users);
+            // console.log('activeUsers :>>',users);
+            setActiveUsers(users);
         })
         socket?.on('getMessage', data => {
             setMessages(prev => ({
                 ...prev,
-                messages: [...prev.messages, {user: data.user,message: data.message }]
+                messages: [...prev.messages, {user: data.user,message: data.message}]
             }))
         })
     }, [socket]);
     
+    // useEffect(() => {
+    //     const peer = new Peer(user.id);
+    //     console.log(typeof(peer));
+    //     // peer.on("open", () => {
+    //     //     // Caller is ready, display their ID or initiate a call
+    //     //     // console.log('call id: '+id);
+    //     // });
+        
+    //     peer.on("call", (call) => {
+    //         // Answer the incoming call and start streaming
+    //         var getUserMedia = navigator.getUserMedia || navigator.webkitGetUserMedia || navigator.mozGetUserMedia;
+    //         getUserMedia({ video: true, audio: true }, (stream) => {
+    //                 call.answer(stream); // Answer the call with an A/V stream.
+    //                 call.on("stream", (remoteStream) => {
+    //                     remoteVideoRef.current.srcObject = remoteStream;
+    //                     remoteVideoRef.current.play();
+    //                 });
+    //             },
+    //             (err) => {
+    //                 console.error("Failed to get local stream", err);
+    //             },
+    //         );
+    //     });
+    //     peerInstance.current = peer;
+    // },[]);
+
     useEffect(() => {
         messageRef?.current?.scrollIntoView({ behavior: 'smooth'})
     }, [messages?.messages]);
@@ -62,6 +95,33 @@ const Dashboard = ()=>{
         fetchUsers()
     },[]);
 
+    // const call = (remotePeerId) => {
+    //     var getUserMedia = navigator.getUserMedia || navigator.webkitGetUserMedia || navigator.mozGetUserMedia;
+    //     getUserMedia({ video: true, audio: true }, (stream) => {
+    //             currentVideoRef.current.srcObject = stream;
+    //             const call = peerInstance.current.call(remotePeerId,stream);
+    //             console.log(typeof(call));
+    //             call.on("stream", (remoteStream) => {
+    //                 remoteVideoRef.current.srcObject = remoteStream;
+    //                 var playPromise = remoteVideoRef.current.play();
+
+    //                 if (playPromise !== undefined) {
+    //                     playPromise.then(_ => {
+    //                     // Automatic playback started!
+    //                     // Show playing UI.
+    //                     })
+    //                     .catch(error => {
+    //                     // Auto-play was prevented
+    //                     // Show paused UI.
+    //                     });
+    //                 }
+    //             });
+    //         },
+    //         (err) => {
+    //             console.error("Failed to get local stream", err);
+    //         },
+    //     );
+    // };
     const fetchMessages = async(conversationId, receiver) => {
         // console.log("receiver :>>",receiver);
         const res = await fetch(`http://localhost:8000/api/message/${conversationId}?senderId=${user?.id}&&receiverId=${receiver?.receiverId}`,{
@@ -127,7 +187,7 @@ const Dashboard = ()=>{
                                             </div>
                                             <div className="ml-6">
                                                 <h3 className="text-1xl">{user?.fullName}</h3>
-                                                <p className="text-lg font-light">{'status'}</p>
+                                                { activeUsers.find(x => (x.userId === user?.receiverId) ) ? <p className='text-lg text-green-600'> Online</p>: <p className='text-lg text-gray-600'>Offline</p> }
                                             </div>
                                         </div>
                                     </div>
@@ -146,9 +206,9 @@ const Dashboard = ()=>{
                         <div className='cursor-pointer'><img src={Avatar} width={60} height={60} alt="User"/></div> 
                         <div className='ml-6 mr-auto'>
                             <h3 className='text-lg'>{messages?.receiver?.fullName}</h3>
-                            <p className='text-sm font-light text-gray-600'>{'online'}</p>
+                            { activeUsers.find(x => (x.userId === messages?.receiver?.receiverId) ) ? <p className='text-sm font-bold text-green-600'> Online</p>: <p className='text-sm font-light text-gray-600'>Offline</p> }
                         </div>
-                        <div className='cursor-pointer'>
+                        <div className='cursor-pointer' onClick={() => activeUsers.find(x => (x.userId === messages?.receiver?.receiverId) ) ? call(messages?.receiver?.receiverId): alert('Not online')}>
                             <svg xmlns="http://www.w3.org/2000/svg" class="icon icon-tabler icon-tabler-phone-call" width="24" height="24" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" fill="none" stroke-linecap="round" stroke-linejoin="round">
                             <path stroke="none" d="M0 0h24v24H0z" fill="none"></path>
                             <path d="M5 4h4l2 5l-2.5 1.5a11 11 0 0 0 5 5l1.5 -2.5l5 2v4a2 2 0 0 1 -2 2a16 16 0 0 1 -15 -15a2 2 0 0 1 2 -2"></path>
@@ -173,10 +233,12 @@ const Dashboard = ()=>{
                         }
                     </div>
                 </div>
+                {/* <video ref={remoteVideoRef}></video> */}
+                {/* <video ref={currentVideoRef}></video> */}
                 {
                     messages?.receiver?.fullName &&
                     <div className="flex items-center w-full p-14">
-                        <Input placeholder="Type a message..." value={message} onChange={(e) => setMessage(e.target.value)} className="w-[90%]" inputClassName="p-4 border-0 shadow-md rounded-full bg-light focus:ring-0 focus:border-0"/>
+                        <Input placeholder="Type a message..." value={message} onChange={(e) => setMessage(e.target.value)}  className="w-[90%]" inputClassName="p-4 border-0 shadow-md rounded-full bg-light focus:ring-0 focus:border-0"/>
                         <div className={`"p-2 ml-4 rounded-full cursor-pointer bg-light ${!message && 'pointer-events-none'}"`} onClick={() => sendMessage()}>
                             <svg xmlns="http://www.w3.org/2000/svg" class="icon icon-tabler icon-tabler-send" width="24" height="24" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" fill="none" stroke-linecap="round" stroke-linejoin="round">
                             <path stroke="none" d="M0 0h24v24H0z" fill="none"></path>
@@ -200,7 +262,7 @@ const Dashboard = ()=>{
                 <div className="text-lg text-primary">Contacts</div>
                 {
                     users.length > 0 ? users.map(({userId, user})=>{
-                        // console.log(user);
+                        // console.log('user:'+userId);
                         return(
                             <div className="flex items-center py-8 border-b border-b-gray-300">
                                 <div className="flex items-center cursor-pointer" onClick={() => fetchMessages('new', user)}>
@@ -209,7 +271,7 @@ const Dashboard = ()=>{
                                     </div>
                                     <div className="ml-6">
                                         <h3 className="text-1xl">{user?.fullName}</h3>
-                                        <p className="text-lg font-light">{'status'}</p>
+                                        { activeUsers.find(x => (x.userId === user?.receiverId) ) ? <p className='text-lg text-green-600'> Online</p>: <p className='text-lg text-gray-600'>Offline</p> }
                                     </div>
                                 </div>
                             </div>

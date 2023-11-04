@@ -15,7 +15,11 @@ const userSchema = mongoose.Schema({
     },
     token:{
         type: String
-    }
+    },
+    friend:{
+        type: Array,
+        required: true
+    },
 });
 
 const Users = mongoose.model('User',userSchema)
