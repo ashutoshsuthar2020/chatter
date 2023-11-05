@@ -24,7 +24,7 @@ app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({extended: false}));
 
-const port = 8000;
+const port = 3000;
 
 // Socket.io
 let users = []
