@@ -1,0 +1,48 @@
+version: "3"
+services:
+  mongo:
+    image: mongo:latest
+    ports:
+      - 27017:27017
+    container_name: mongo-container
+    networks:
+      - mern-stack-network
+    volumes:
+      - mongodbData:/data/db
+  
+  backend:
+    build: 
+      context: './server'
+      dockerfile: Dockerfile
+    tty: true
+    ports:
+      - 8000:8000
+    container_name: backend-container
+    networks:
+      - mern-stack-network
+    environment:
+      - PORT=8000
+      - MONGODB=mongodb://mongoi_db/testdb
+    volumes:
+      - ./server:/app
+    depends_on: 
+      - mongo
+
+  frontend:
+    build: 
+      context: './client'
+      dockerfile: Dockerfile
+    tty: true
+    ports:
+      - 3000:3000
+    container_name: frontend-container
+    volumes:
+      - ./client:/app
+    depends_on: 
+      - backend
+
+volumes:
+  mongodbData:
+
+networks:
+  mern-stack-network:

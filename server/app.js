@@ -1,5 +1,6 @@
 // declare function require(name:string);
 const express = require('express');
+const PORT = process.env.PORT || 8000;
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 const cors = require('cors');
@@ -23,8 +24,6 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({extended: false}));
-
-const port = 3000;
 
 // Socket.io
 let users = []
@@ -220,6 +219,6 @@ app.get('/api/users/:userId', async (req,res) => {
     }
 })
 
-app.listen(port,()=>{
-    console.log("listening on port : " + port);
+app.listen(PORT,()=>{
+    console.log("listening on port : " + PORT);
 })

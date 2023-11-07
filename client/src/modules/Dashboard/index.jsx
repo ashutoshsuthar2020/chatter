@@ -3,7 +3,7 @@ import Img1 from './../../assets/user.svg'
 import Avatar from "./../../assets/user.svg"
 import Input from "./../../components/Input"
 import {io} from 'socket.io-client'
-import { Peer } from "peerjs";
+// import { Peer } from "peerjs";
 
 const Dashboard = ()=>{
     const [user, setUser] = useState(JSON.parse(localStorage.getItem('user:detail')));
@@ -208,7 +208,9 @@ const Dashboard = ()=>{
                             <h3 className='text-lg'>{messages?.receiver?.fullName}</h3>
                             { activeUsers.find(x => (x.userId === messages?.receiver?.receiverId) ) ? <p className='text-sm font-bold text-green-600'> Online</p>: <p className='text-sm font-light text-gray-600'>Offline</p> }
                         </div>
-                        <div className='cursor-pointer' onClick={() => activeUsers.find(x => (x.userId === messages?.receiver?.receiverId) ) ? call(messages?.receiver?.receiverId): alert('Not online')}>
+                        <div className='cursor-pointer' 
+                        // onClick={() => activeUsers.find(x => (x.userId === messages?.receiver?.receiverId) ) ? call(messages?.receiver?.receiverId): alert('Not online')}
+                        >
                             <svg xmlns="http://www.w3.org/2000/svg" class="icon icon-tabler icon-tabler-phone-call" width="24" height="24" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" fill="none" stroke-linecap="round" stroke-linejoin="round">
                             <path stroke="none" d="M0 0h24v24H0z" fill="none"></path>
                             <path d="M5 4h4l2 5l-2.5 1.5a11 11 0 0 0 5 5l1.5 -2.5l5 2v4a2 2 0 0 1 -2 2a16 16 0 0 1 -15 -15a2 2 0 0 1 2 -2"></path>
