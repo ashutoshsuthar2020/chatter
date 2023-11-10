@@ -1,10 +1,11 @@
 // declare function require(name:string);
 const express = require('express');
 const PORT = process.env.PORT || 8000;
+const SOCKETPORT = process.env.SOCKETPORT || 8080;
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 const cors = require('cors');
-const io = require('socket.io')(8080,{
+const io = require('socket.io')(SOCKETPORT,{
     cors: {
         origin:'http://localhost:3000'
     }
@@ -17,9 +18,9 @@ require('./db/connection');
 const Users = require('./models/Users');
 const Conversations = require('./models/Conversations');
 const Messages = require('./models/Messages');
-const { Socket } = require('socket.io');
+// const { Socket } = require('socket.io');
 
-// app Use
+// app Use[/]
 const app = express();
 app.use(cors());
 app.use(express.json());
@@ -94,6 +95,7 @@ app.post('/api/register',async (req,res,next)=>{
         console.log(error);
     }
 })
+
 app.post('/api/login',async (req,res,next)=>{
     try{
         const {email, password } = req.body;

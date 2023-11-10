@@ -17,12 +17,13 @@ services:
     tty: true
     ports:
       - 8000:8000
+      - 8080:8080
     container_name: backend-container
     networks:
       - mern-stack-network
     environment:
       - PORT=8000
-      - MONGODB=mongodb://mongoi_db/testdb
+      - MONGODB=mongodb://mongo/testdb
     volumes:
       - ./server:/app
     depends_on: 

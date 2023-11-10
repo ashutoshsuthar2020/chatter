@@ -4,6 +4,7 @@ import Avatar from "./../../assets/user.svg"
 import Input from "./../../components/Input"
 import {io} from 'socket.io-client'
 // import { Peer } from "peerjs";
+const backend_url = process.env.BACKEND_URL || `http://localhost:8000`
 
 const Dashboard = ()=>{
     const [user, setUser] = useState(JSON.parse(localStorage.getItem('user:detail')));
@@ -145,7 +146,7 @@ const Dashboard = ()=>{
             conversationId: messages?.conversationId
         });
         // console.log('message:>>',messages.conversationId);
-        const res = await fetch('http://localhost:8000/api/message', {
+        const res = await fetch(`http://localhost:8000/api/message`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
