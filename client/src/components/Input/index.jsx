@@ -9,12 +9,28 @@ const Input = ({
     isRequired = true,
     placeholder = '',
     value = '',
-    onChange = () => {},
+    onChange = () => { },
+    onKeyPress = () => { },
+    disabled = false,
 }) => {
-    return(
-        <div className={`${className}`}>
-            <label htmlFor={name} className="block text-sm font-medium text-gray-800">{label}</label>
-            <input type={type} id={name} className={`bg-gray-50 border border-gray-300 text-gray-900 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-full p-2.5 dark:focus:ring-blue-500 dark:focus:border-blue-500 ${inputClassName}`} placeholder={placeholder} required={isRequired} value={value} onChange={onChange}/>
+    return (
+        <div className={`w-full ${className}`}>
+            {label && (
+                <label htmlFor={name} className="block text-sm font-medium text-neutral-700 mb-2">
+                    {label}
+                </label>
+            )}
+            <input
+                type={type}
+                id={name}
+                className={`w-full px-4 py-3 bg-white border border-neutral-200 text-neutral-900 text-sm rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-primary-500 transition-all duration-200 placeholder-neutral-400 disabled:opacity-50 disabled:cursor-not-allowed disabled:bg-neutral-50 ${inputClassName}`}
+                placeholder={placeholder}
+                required={isRequired}
+                value={value}
+                onChange={onChange}
+                onKeyPress={onKeyPress}
+                disabled={disabled}
+            />
         </div>
     )
 }
