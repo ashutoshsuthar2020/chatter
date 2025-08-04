@@ -1,38 +1,31 @@
-# Use Ubuntu 22.04 as the base image
-FROM ubuntu:22.04
+FROM node:18-alpine
 
-# Avoid interactive prompts during build
-ENV DEBIAN_FRONTEND=noninteractive
-
-# Install dependencies
-RUN apt-get update && apt-get install -y \
-    curl \
-    gnupg \
-    ca-certificates \
-    build-essential \
-    python3 \
-    make \
-    g++ \
-    && rm -rf /var/lib/apt/lists/*
-
-# Install Node.js 19.x from Nodesource
-RUN curl -fsSL https://deb.nodesource.com/setup_19.x | bash - && \
-    apt-get update && \
-    apt-get install -y nodejs
-
-# Create app directory
-RUN mkdir /app
+# Set working directory
 WORKDIR /app
 
-# Copy package files and install dependencies
-COPY package.json ./
-RUN npm install
+# Copy package files
+COPY package*.json ./
 
-# Copy all source files
+# Install dependencies
+RUN npm ci --only=production
+
+# Copy source code
 COPY . .
 
-# Expose the app port
-EXPOSE 3000
+# Create non-root user
+RUN addgroup -g 1001 -S nodejs
+RUN adduser -S nodejs -u 1001
 
-# Start the app
-CMD ["bash", "-c", "npm install && npm start"]
+# Change ownership of the app directory
+RUN chown -R nodejs:nodejs /app
+USER nodejs
+
+# Expose port
+EXPOSE 8000
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+    CMD node -e "require('http').get('http://localhost:8000/health', (res) => { process.exit(res.statusCode === 200 ? 0 : 1) })"
+
+# Start the application
+CMD ["node", "app.js"]

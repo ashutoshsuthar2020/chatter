@@ -1,27 +1,51 @@
 const mongoose = require('mongoose');
 
 const userSchema = mongoose.Schema({
-    fullName:{
+    fullName: {
         type: String,
         required: true
     },
-    email:{
+    email: {
         type: String,
-        required: true
+        required: true,
+        unique: true
     },
-    password:{
+    password: {
         type: String,
-        required: true
+        required: function () {
+            // Password is required only if not a Google user
+            return !this.isGoogleUser;
+        }
     },
-    token:{
+    googleId: {
+        type: String,
+        unique: true,
+        sparse: true // This allows multiple documents without googleId
+    },
+    firstName: {
         type: String
     },
-    friend:{
-        type: Array,
-        required: true
+    lastName: {
+        type: String
     },
+    picture: {
+        type: String
+    },
+    isGoogleUser: {
+        type: Boolean,
+        default: false
+    },
+    token: {
+        type: String
+    },
+    friend: {
+        type: Array,
+        default: []
+    },
+}, {
+    timestamps: true
 });
 
-const Users = mongoose.model('User',userSchema)
+const Users = mongoose.model('User', userSchema)
 
 module.exports = Users;
