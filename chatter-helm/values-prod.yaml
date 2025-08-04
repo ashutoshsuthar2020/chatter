@@ -1,0 +1,68 @@
+# Production environment values
+replicaCount: 3
+
+image:
+  repository: your-registry/chatter-server
+  pullPolicy: Always
+  tag: "v1.0.0"
+
+service:
+  type: ClusterIP
+  port: 8000
+
+resources:
+  limits:
+    cpu: 1000m
+    memory: 1Gi
+  requests:
+    cpu: 500m
+    memory: 512Mi
+
+autoscaling:
+  enabled: true
+  minReplicas: 3
+  maxReplicas: 20
+  targetCPUUtilizationPercentage: 70
+
+ingress:
+  enabled: true
+  className: "nginx"
+  annotations:
+    kubernetes.io/tls-acme: "true"
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+  hosts:
+    - host: chatter.yourdomain.com
+      paths:
+        - path: /
+          pathType: Prefix
+  tls:
+    - secretName: chatter-tls
+      hosts:
+        - chatter.yourdomain.com
+
+mongodb:
+  enabled: true
+  auth:
+    enabled: true
+    rootPassword: "your-secure-password"
+  persistence:
+    enabled: true
+    size: 20Gi
+    storageClass: "fast-ssd"
+  resources:
+    limits:
+      cpu: 2000m
+      memory: 2Gi
+    requests:
+      cpu: 1000m
+      memory: 1Gi
+
+# Production secrets (should be managed by external secret management)
+secrets:
+  enabled: false  # Use external secret management in production
+
+env:
+  - name: PORT
+    value: "8000"
+  - name: NODE_ENV
+    value: "production"

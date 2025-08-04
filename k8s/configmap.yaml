@@ -1,9 +1,0 @@
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: chatter-server-config
-  namespace: default
-data:
-  PORT: "8000"
-  NODE_ENV: "production"
-  # Add other non-sensitive environment variables here

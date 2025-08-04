@@ -12,8 +12,9 @@ server/dist/
 client/.env
 server/.env
 
-# Kubernetes secrets (sensitive data)
-k8s/secrets-local.yaml
+# Helm values with sensitive data (local overrides)
+chatter-helm/values-local.yaml
+chatter-helm/values-*.local.yaml
 
 # Logs
 *.log

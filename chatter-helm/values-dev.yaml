@@ -1,0 +1,44 @@
+# Development environment values
+replicaCount: 1
+
+image:
+  repository: chatter-server
+  pullPolicy: Never
+  tag: "latest"
+
+service:
+  type: ClusterIP
+  port: 8000
+
+resources:
+  limits:
+    cpu: 200m
+    memory: 256Mi
+  requests:
+    cpu: 100m
+    memory: 128Mi
+
+autoscaling:
+  enabled: false
+
+mongodb:
+  enabled: true
+  auth:
+    enabled: false
+  persistence:
+    enabled: false  # No persistence for dev
+  resources:
+    limits:
+      cpu: 200m
+      memory: 256Mi
+    requests:
+      cpu: 100m
+      memory: 128Mi
+
+# Development secrets (these should be different in production!)
+secrets:
+  enabled: true
+  data:
+    MONGODB_URI: "bW9uZ29kYjovL21vbmdvZGI6MjcwMTcvY2hhdHRlcg=="
+    JWT_SECRET: "VEhJU19JU19BX0pXVF9TRUNSRVRfS0VZ"
+    GOOGLE_CLIENT_ID: ""

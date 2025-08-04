@@ -1,0 +1,6 @@
+apiVersion: v2
+name: chatter-helm
+description: A Helm chart for Chatter - Real-time messaging application with contact management
+type: application
+version: 0.1.0
+appVersion: "1.0.0"
