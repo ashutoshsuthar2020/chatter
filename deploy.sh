@@ -316,7 +316,26 @@ install_software() {
             fi
         elif [[ "$OSTYPE" == "linux-gnu"* ]]; then
             # On Linux, configure appropriate drivers
-            if command -v docker &> /dev/null && docker ps &> /dev/null; then
+            if [[ "$FORCE_ALT_DRIVER" == "true" ]]; then
+                log_info "Using alternative driver due to Docker permission issues..."
+                if command -v virsh &> /dev/null; then
+                    log_info "Setting KVM2 as driver..."
+                    minikube config set driver kvm2
+                elif command -v VBoxManage &> /dev/null; then
+                    log_info "Setting VirtualBox as driver..."
+                    minikube config set driver virtualbox
+                elif command -v podman &> /dev/null; then
+                    log_info "Setting Podman as driver..."
+                    minikube config set driver podman
+                else
+                    log_warning "Installing VirtualBox as fallback driver..."
+                    if [[ "$DISTRO" == "Ubuntu/Debian" ]]; then
+                        sudo apt-get update
+                        sudo apt-get install -y virtualbox virtualbox-ext-pack
+                        minikube config set driver virtualbox
+                    fi
+                fi
+            elif command -v docker &> /dev/null && docker ps &> /dev/null; then
                 log_info "Setting Docker as default driver for Linux..."
                 minikube config set driver docker
                 
@@ -371,16 +390,33 @@ install_software() {
             fi
         else
             # Linux: Try multiple drivers in order of preference
-            DRIVERS_TO_TRY=("docker" "podman" "virtualbox" "kvm2")
+            if [[ "$FORCE_ALT_DRIVER" == "true" ]]; then
+                # Skip Docker due to permission issues
+                DRIVERS_TO_TRY=("kvm2" "podman" "virtualbox")
+                log_info "Skipping Docker driver due to permission issues"
+            else
+                DRIVERS_TO_TRY=("docker" "kvm2" "podman" "virtualbox")
+            fi
+            
             MINIKUBE_STARTED=false
             
             for driver in "${DRIVERS_TO_TRY[@]}"; do
                 case $driver in
                     "docker")
-                        if command -v docker &> /dev/null && docker ps &> /dev/null; then
+                        if [[ "$FORCE_ALT_DRIVER" != "true" ]] && command -v docker &> /dev/null && docker ps &> /dev/null; then
                             log_info "Attempting to start minikube with Docker driver..."
                             if minikube start --driver=docker --cpus=2 --memory=4096 --disk-size=20g; then
                                 log_success "minikube started successfully with Docker driver"
+                                MINIKUBE_STARTED=true
+                                break
+                            fi
+                        fi
+                        ;;
+                    "kvm2")
+                        if command -v virsh &> /dev/null; then
+                            log_info "Attempting to start minikube with KVM2 driver..."
+                            if minikube start --driver=kvm2 --cpus=2 --memory=4096; then
+                                log_success "minikube started successfully with KVM2 driver"
                                 MINIKUBE_STARTED=true
                                 break
                             fi
@@ -406,16 +442,6 @@ install_software() {
                             fi
                         fi
                         ;;
-                    "kvm2")
-                        if command -v virsh &> /dev/null; then
-                            log_info "Attempting to start minikube with KVM2 driver..."
-                            if minikube start --driver=kvm2 --cpus=2 --memory=4096; then
-                                log_success "minikube started successfully with KVM2 driver"
-                                MINIKUBE_STARTED=true
-                                break
-                            fi
-                        fi
-                        ;;
                 esac
             done
             
@@ -433,18 +459,67 @@ install_software() {
     
     # Verify Docker is running
     if ! docker ps &> /dev/null; then
-        log_error "Docker is installed but not running. Please start Docker and try again."
-        if [[ "$OSTYPE" == "darwin"* ]]; then
-            log_info "On macOS, you can start Docker by running: open -a Docker"
-        elif [[ "$OSTYPE" == "linux-gnu"* ]]; then
-            log_info "On Linux, you can start Docker by running:"
-            log_info "  sudo systemctl start docker"
-            log_info "  sudo systemctl enable docker"
-            log_info "If you just installed Docker, you may need to:"
-            log_info "  1. Log out and back in (or run: newgrp docker)"
-            log_info "  2. Make sure your user is in the docker group: sudo usermod -aG docker \$USER"
+        log_error "Docker is installed but not running or not accessible. Checking Docker access..."
+        
+        # Check if Docker daemon is running
+        if sudo docker ps &> /dev/null; then
+            log_warning "Docker is running but user lacks permissions."
+            log_info "Docker group membership issue detected."
+            
+            # Check if user is in docker group
+            if ! groups | grep -q docker; then
+                log_info "Adding user to docker group..."
+                sudo usermod -aG docker $USER
+                log_warning "User added to docker group."
+            else
+                log_info "User is already in docker group, but permissions not active."
+            fi
+            
+            log_warning "Docker permission fix required. Choose one option:"
+            echo "   1. Log out and back in (recommended)"
+            echo "   2. Run: newgrp docker (applies to current session)"
+            echo "   3. Continue with sudo docker (not recommended for minikube)"
+            echo "   4. Use alternative minikube driver (KVM2/VirtualBox)"
+            echo ""
+            read -p "Enter choice (1-4): " -n 1 -r
+            echo ""
+            
+            case $REPLY in
+                1)
+                    log_info "Please log out and back in, then re-run this script."
+                    exit 0
+                    ;;
+                2)
+                    log_info "Attempting to apply docker group in current session..."
+                    exec newgrp docker << EOF
+exec $0 "$@"
+EOF
+                    ;;
+                3)
+                    log_warning "Continuing with sudo docker (not ideal for minikube)..."
+                    # Set a flag to use sudo docker commands
+                    export USE_SUDO_DOCKER=true
+                    ;;
+                4)
+                    log_info "Will use alternative minikube driver..."
+                    export FORCE_ALT_DRIVER=true
+                    ;;
+                *)
+                    log_error "Invalid choice. Exiting."
+                    exit 1
+                    ;;
+            esac
+        else
+            log_error "Docker daemon is not running. Please start Docker and try again."
+            if [[ "$OSTYPE" == "darwin"* ]]; then
+                log_info "On macOS, you can start Docker by running: open -a Docker"
+            elif [[ "$OSTYPE" == "linux-gnu"* ]]; then
+                log_info "On Linux, you can start Docker by running:"
+                log_info "  sudo systemctl start docker"
+                log_info "  sudo systemctl enable docker"
+            fi
+            exit 1
         fi
-        exit 1
     fi
     
     # Additional check for Linux: ensure user is in docker group
@@ -475,12 +550,14 @@ install_minikube_drivers() {
     if [[ "$OSTYPE" == "linux-gnu"* ]]; then
         log_step "Installing Additional minikube Drivers (Linux)"
         
-        # Install KVM2 driver if not present
+        # Install KVM2 driver if not present (preferred for Linux)
         if ! command -v virsh &> /dev/null; then
             if [[ "$DISTRO" == "Ubuntu/Debian" ]]; then
                 log_info "Installing KVM2 driver for Ubuntu/Debian..."
                 sudo apt-get install -y qemu-kvm libvirt-daemon-system libvirt-clients bridge-utils
                 sudo usermod -aG libvirt $USER
+                sudo systemctl enable libvirtd
+                sudo systemctl start libvirtd
                 log_success "KVM2 driver installed"
             elif [[ "$DISTRO" == "RHEL/CentOS" ]] || [[ "$DISTRO" == "Fedora" ]]; then
                 log_info "Installing KVM2 driver for RHEL/CentOS/Fedora..."
@@ -496,6 +573,23 @@ install_minikube_drivers() {
             fi
         fi
         
+        # Install VirtualBox as reliable fallback (especially for Docker permission issues)
+        if ! command -v VBoxManage &> /dev/null; then
+            if [[ "$DISTRO" == "Ubuntu/Debian" ]]; then
+                log_info "Installing VirtualBox as fallback driver..."
+                sudo apt-get install -y virtualbox virtualbox-ext-pack
+                log_success "VirtualBox driver installed"
+            elif [[ "$DISTRO" == "RHEL/CentOS" ]] || [[ "$DISTRO" == "Fedora" ]]; then
+                log_info "Installing VirtualBox for RHEL/CentOS/Fedora..."
+                if command -v dnf &> /dev/null; then
+                    sudo dnf install -y VirtualBox
+                else
+                    sudo yum install -y VirtualBox
+                fi
+                log_success "VirtualBox driver installed"
+            fi
+        fi
+        
         # Install docker-machine-driver-kvm2 for better KVM support
         if command -v virsh &> /dev/null && ! command -v docker-machine-driver-kvm2 &> /dev/null; then
             log_info "Installing docker-machine-driver-kvm2..."
@@ -503,6 +597,23 @@ install_minikube_drivers() {
             sudo install docker-machine-driver-kvm2 /usr/local/bin/
             rm docker-machine-driver-kvm2
             log_success "docker-machine-driver-kvm2 installed"
+        fi
+        
+        # Install Podman as alternative container runtime
+        if ! command -v podman &> /dev/null; then
+            if [[ "$DISTRO" == "Ubuntu/Debian" ]]; then
+                log_info "Installing Podman as Docker alternative..."
+                sudo apt-get install -y podman
+                log_success "Podman installed"
+            elif [[ "$DISTRO" == "RHEL/CentOS" ]] || [[ "$DISTRO" == "Fedora" ]]; then
+                log_info "Installing Podman..."
+                if command -v dnf &> /dev/null; then
+                    sudo dnf install -y podman
+                else
+                    sudo yum install -y podman
+                fi
+                log_success "Podman installed"
+            fi
         fi
     fi
 }
@@ -555,7 +666,7 @@ check_prerequisites() {
     log_success "Docker is available (v$DOCKER_VERSION)"
     
     # Verify Docker is actually running
-    if ! sudo docker ps &>/dev/null; then
+    if ! docker ps &>/dev/null; then
         log_error "Docker is installed but not running. Please start Docker and try again"
         exit 1
     fi
@@ -598,12 +709,24 @@ check_prerequisites() {
 build_images() {
     log_step "Building Docker Images"
     
+    # Check if we can use minikube's Docker daemon instead of system Docker
+    CURRENT_DRIVER=$(minikube config get driver 2>/dev/null || echo "auto")
+    
+    if [[ "$CURRENT_DRIVER" == "docker" ]] && [[ "$USE_SUDO_DOCKER" == "true" ]]; then
+        log_warning "Docker permission issues detected. Using minikube's Docker daemon..."
+        eval $(minikube docker-env)
+        log_info "Switched to minikube's Docker daemon"
+    elif [[ "$CURRENT_DRIVER" != "docker" ]]; then
+        log_info "Using minikube's built-in Docker daemon (driver: $CURRENT_DRIVER)"
+        eval $(minikube docker-env)
+    fi
+    
     # Build server image
     log_info "Building server image..."
     cd server
     if docker build -t myrepo/chat-server:latest . &>../build-server.log; then
         log_success "Server image built successfully"
-        log_info "Server image size: $(docker images myrepo/chat-server:latest --format "{{.Size}}")"
+        log_info "Server image size: $(docker images myrepo/chat-server:latest --format "{{.Size}}" 2>/dev/null || echo "Unknown")"
     else
         log_error "Server build failed! Check build-server.log"
         cat ../build-server.log
@@ -615,7 +738,7 @@ build_images() {
     cd ../client
     if docker build -t myrepo/chat-client:latest . &>../build-client.log; then
         log_success "Client image built successfully"
-        log_info "Client image size: $(docker images myrepo/chat-client:latest --format "{{.Size}}")"
+        log_info "Client image size: $(docker images myrepo/chat-client:latest --format "{{.Size}}" 2>/dev/null || echo "Unknown")"
     else
         log_error "Client build failed! Check build-client.log"
         cat ../build-client.log
@@ -624,17 +747,21 @@ build_images() {
     
     cd ..
     
-    # Load images into minikube
-    log_info "Loading images into minikube..."
-    minikube image load myrepo/chat-server:latest
-    minikube image load myrepo/chat-client:latest
-    
-    # Verify images in minikube
-    if minikube image ls | grep -q myrepo; then
-        log_success "Images loaded into minikube successfully"
+    # Load images into minikube (if not already using minikube's Docker daemon)
+    if [[ "$CURRENT_DRIVER" == "docker" ]] && [[ "$USE_SUDO_DOCKER" != "true" ]]; then
+        log_info "Loading images into minikube..."
+        minikube image load myrepo/chat-server:latest
+        minikube image load myrepo/chat-client:latest
+        
+        # Verify images in minikube
+        if minikube image ls | grep -q myrepo; then
+            log_success "Images loaded into minikube successfully"
+        else
+            log_error "Failed to load images into minikube"
+            exit 1
+        fi
     else
-        log_error "Failed to load images into minikube"
-        exit 1
+        log_success "Images built directly in minikube's Docker daemon"
     fi
 }
 
