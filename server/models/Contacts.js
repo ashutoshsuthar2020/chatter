@@ -11,7 +11,7 @@ const contactSchema = mongoose.Schema({
         ref: 'User',
         required: true
     },
-    contactEmail: {
+    contactPhoneNumber: {
         type: String,
         required: true
     },

@@ -1,19 +1,17 @@
 const mongoose = require('mongoose');
 
-const conversationSchema = mongoose.Schema({
-    members: {
-        type: Array,
-        required: true
-    },
-    isGroup: {
-        type: Boolean,
-        default: false
-    },
+const groupConversationSchema = mongoose.Schema({
     groupId: {
         type: mongoose.Schema.Types.ObjectId,
         ref: 'Group',
-        required: false
+        required: true,
+        unique: true
     },
+    members: [{
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'User',
+        required: true
+    }],
     lastMessage: {
         message: String,
         sender: {
@@ -23,16 +21,12 @@ const conversationSchema = mongoose.Schema({
         timestamp: {
             type: Date,
             default: Date.now
-        },
-        sequenceNumber: {
-            type: Number,
-            default: 0
         }
     }
 }, {
     timestamps: true
 });
 
-const Conversation = mongoose.model('Conversation', conversationSchema)
+const GroupConversation = mongoose.model('GroupConversation', groupConversationSchema);
 
-module.exports = Conversation;
+module.exports = GroupConversation;

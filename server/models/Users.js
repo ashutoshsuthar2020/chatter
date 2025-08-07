@@ -5,38 +5,23 @@ const userSchema = mongoose.Schema({
         type: String,
         required: true
     },
-    email: {
+    phoneNumber: {
         type: String,
         required: true,
         unique: true
     },
-    password: {
-        type: String,
-        required: function () {
-            // Password is required only if not a Google user
-            return !this.isGoogleUser;
-        }
-    },
-    googleId: {
-        type: String,
-        unique: true,
-        sparse: true // This allows multiple documents without googleId
-    },
-    firstName: {
-        type: String
-    },
-    lastName: {
-        type: String
-    },
     picture: {
-        type: String
+        type: String,
+        default: ''
     },
-    isGoogleUser: {
-        type: Boolean,
-        default: false
+    bio: {
+        type: String,
+        default: '',
+        maxlength: 150
     },
-    token: {
-        type: String
+    lastActiveAt: {
+        type: Date,
+        default: Date.now
     },
     friend: {
         type: Array,
