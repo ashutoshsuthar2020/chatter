@@ -134,7 +134,27 @@ install_software() {
             else
                 # Generic Linux installation
                 log_info "Installing kubectl (generic Linux)..."
-                curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+                ARCH=$(uname -m)
+                log_info "Detected architecture: $ARCH"
+                
+                # Map architecture names
+                case $ARCH in
+                    "x86_64")
+                        KUBECTL_ARCH="amd64"
+                        ;;
+                    "aarch64"|"arm64")
+                        KUBECTL_ARCH="arm64"
+                        ;;
+                    "armv7l")
+                        KUBECTL_ARCH="arm"
+                        ;;
+                    *)
+                        KUBECTL_ARCH=$ARCH
+                        ;;
+                esac
+                
+                log_info "Using kubectl architecture: $KUBECTL_ARCH"
+                curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/$KUBECTL_ARCH/kubectl"
                 sudo install -o root -g root -m 0755 kubectl /usr/local/bin/kubectl
                 rm kubectl
             fi
@@ -192,26 +212,91 @@ install_software() {
         elif [[ "$OSTYPE" == "linux-gnu"* ]]; then
             if [[ "$DISTRO" == "Ubuntu/Debian" ]]; then
                 log_info "Installing minikube for Ubuntu/Debian..."
-                # Download and install minikube
-                curl -LO https://storage.googleapis.com/minikube/releases/latest/minikube_latest_amd64.deb
-                sudo dpkg -i minikube_latest_amd64.deb
-                rm minikube_latest_amd64.deb
+                # Detect architecture
+                ARCH=$(dpkg --print-architecture)
+                log_info "Detected architecture: $ARCH"
+                
+                # Download and install minikube for the correct architecture
+                if [[ "$ARCH" == "amd64" ]]; then
+                    curl -LO https://storage.googleapis.com/minikube/releases/latest/minikube_latest_amd64.deb
+                    sudo dpkg -i minikube_latest_amd64.deb
+                    rm minikube_latest_amd64.deb
+                elif [[ "$ARCH" == "arm64" ]]; then
+                    curl -LO https://storage.googleapis.com/minikube/releases/latest/minikube_latest_arm64.deb
+                    sudo dpkg -i minikube_latest_arm64.deb
+                    rm minikube_latest_arm64.deb
+                else
+                    log_warning "Unsupported architecture: $ARCH. Falling back to generic installation..."
+                    curl -LO https://storage.googleapis.com/minikube/releases/latest/minikube-linux-$(uname -m)
+                    sudo install minikube-linux-$(uname -m) /usr/local/bin/minikube
+                    rm minikube-linux-$(uname -m)
+                fi
             elif [[ "$DISTRO" == "RHEL/CentOS" ]]; then
                 log_info "Installing minikube for RHEL/CentOS..."
-                curl -LO https://storage.googleapis.com/minikube/releases/latest/minikube-latest.x86_64.rpm
-                sudo rpm -Uvh minikube-latest.x86_64.rpm
-                rm minikube-latest.x86_64.rpm
+                # Detect architecture
+                ARCH=$(uname -m)
+                log_info "Detected architecture: $ARCH"
+                
+                if [[ "$ARCH" == "x86_64" ]]; then
+                    curl -LO https://storage.googleapis.com/minikube/releases/latest/minikube-latest.x86_64.rpm
+                    sudo rpm -Uvh minikube-latest.x86_64.rpm
+                    rm minikube-latest.x86_64.rpm
+                elif [[ "$ARCH" == "aarch64" ]]; then
+                    curl -LO https://storage.googleapis.com/minikube/releases/latest/minikube-latest.aarch64.rpm
+                    sudo rpm -Uvh minikube-latest.aarch64.rpm
+                    rm minikube-latest.aarch64.rpm
+                else
+                    log_warning "Unsupported architecture: $ARCH. Falling back to generic installation..."
+                    curl -LO https://storage.googleapis.com/minikube/releases/latest/minikube-linux-$ARCH
+                    sudo install minikube-linux-$ARCH /usr/local/bin/minikube
+                    rm minikube-linux-$ARCH
+                fi
             elif [[ "$DISTRO" == "Fedora" ]]; then
                 log_info "Installing minikube for Fedora..."
-                curl -LO https://storage.googleapis.com/minikube/releases/latest/minikube-latest.x86_64.rpm
-                sudo rpm -Uvh minikube-latest.x86_64.rpm
-                rm minikube-latest.x86_64.rpm
+                # Detect architecture
+                ARCH=$(uname -m)
+                log_info "Detected architecture: $ARCH"
+                
+                if [[ "$ARCH" == "x86_64" ]]; then
+                    curl -LO https://storage.googleapis.com/minikube/releases/latest/minikube-latest.x86_64.rpm
+                    sudo rpm -Uvh minikube-latest.x86_64.rpm
+                    rm minikube-latest.x86_64.rpm
+                elif [[ "$ARCH" == "aarch64" ]]; then
+                    curl -LO https://storage.googleapis.com/minikube/releases/latest/minikube-latest.aarch64.rpm
+                    sudo rpm -Uvh minikube-latest.aarch64.rpm
+                    rm minikube-latest.aarch64.rpm
+                else
+                    log_warning "Unsupported architecture: $ARCH. Falling back to generic installation..."
+                    curl -LO https://storage.googleapis.com/minikube/releases/latest/minikube-linux-$ARCH
+                    sudo install minikube-linux-$ARCH /usr/local/bin/minikube
+                    rm minikube-linux-$ARCH
+                fi
             else
                 # Generic installation
                 log_info "Installing minikube (generic method)..."
-                curl -LO https://storage.googleapis.com/minikube/releases/latest/minikube-linux-amd64
-                sudo install minikube-linux-amd64 /usr/local/bin/minikube
-                rm minikube-linux-amd64
+                ARCH=$(uname -m)
+                log_info "Detected architecture: $ARCH"
+                
+                # Map architecture names to minikube binary names
+                case $ARCH in
+                    "x86_64")
+                        MINIKUBE_ARCH="amd64"
+                        ;;
+                    "aarch64"|"arm64")
+                        MINIKUBE_ARCH="arm64"
+                        ;;
+                    "armv7l")
+                        MINIKUBE_ARCH="arm"
+                        ;;
+                    *)
+                        MINIKUBE_ARCH=$ARCH
+                        ;;
+                esac
+                
+                log_info "Using minikube architecture: $MINIKUBE_ARCH"
+                curl -LO https://storage.googleapis.com/minikube/releases/latest/minikube-linux-$MINIKUBE_ARCH
+                sudo install minikube-linux-$MINIKUBE_ARCH /usr/local/bin/minikube
+                rm minikube-linux-$MINIKUBE_ARCH
             fi
         fi
         log_success "minikube installed successfully"
