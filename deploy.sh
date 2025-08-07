@@ -1,14 +1,19 @@
 #!/bin/bash
 # deploy.sh - Comprehensive Chat App Deployment Script
-# Updated: August 2025
+# Updated: August 2025 - Enhanced Version with Smart URL Detection
 
 set -e  # Exit on any error
+
+# Script version and update info
+SCRIPT_VERSION="2.1.0"
+LAST_UPDATED="August 7, 2025"
 
 # Colors for output
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
+PURPLE='\033[0;35m'
 NC='\033[0m' # No Color
 
 # Configuration
@@ -942,28 +947,66 @@ show_final_status() {
     
     # Get minikube service URLs (works on all platforms)
     log_info "Getting service URLs..."
-    CLIENT_URL=$(minikube service chat-app-client -n chat-app --url 2>/dev/null || echo "http://$MINIKUBE_IP:$CLIENT_NODEPORT")
-    SERVER_URL=$(minikube service chat-app-server -n chat-app --url 2>/dev/null || echo "http://$MINIKUBE_IP:$SERVER_NODEPORT")
+    
+    # Get service URLs with smart platform detection
+    local driver=$(minikube profile list 2>/dev/null | grep "minikube" | awk '{print $2}' || echo "unknown")
+    
+    if [[ "$OSTYPE" == "darwin"* ]] && [[ "$driver" == "docker" ]]; then
+        # On macOS with Docker driver, minikube service tunnels are required
+        log_info "macOS Docker driver detected - preparing tunnel URLs..."
+        CLIENT_URL="minikube service chat-app-client -n chat-app"
+        SERVER_URL="minikube service chat-app-server -n chat-app"
+        
+        # Also get the tunnel URLs in the background for display
+        CLIENT_TUNNEL_URL=$(timeout 3s minikube service chat-app-client -n chat-app --url 2>/dev/null | head -1 || echo "")
+        SERVER_TUNNEL_URL=$(timeout 3s minikube service chat-app-server -n chat-app --url 2>/dev/null | head -1 || echo "")
+    else
+        # For other platforms, try to get service URLs with timeout
+        log_info "Getting service URLs for platform: $OSTYPE, driver: $driver"
+        CLIENT_URL=$(timeout 3s minikube service chat-app-client -n chat-app --url 2>/dev/null | head -1 || echo "http://$MINIKUBE_IP:$CLIENT_NODEPORT")
+        SERVER_URL=$(timeout 3s minikube service chat-app-server -n chat-app --url 2>/dev/null | head -1 || echo "http://$MINIKUBE_IP:$SERVER_NODEPORT")
+    fi
     
     echo "🎉 Chat Application Deployment Complete!"
     echo ""
-    echo "📱 Access URLs:"
-    local driver=$(minikube profile list 2>/dev/null | grep "minikube" | awk '{print $2}' || echo "unknown")
+    echo "📱 Access Information:"
+    
     if [[ "$OSTYPE" == "darwin"* ]] && [[ "$driver" == "docker" ]]; then
-        echo "   ⚠️  Note: On macOS with Docker driver, use these URLs:"
-        echo "   Client UI:  $CLIENT_URL (minikube tunnel required)"
-        echo "   Server API: $SERVER_URL (minikube tunnel required)"
+        echo "   Platform: macOS with Docker driver"
+        echo "   ⚠️  Important: Direct NodePort access doesn't work on macOS Docker driver"
         echo ""
-        echo "   Alternative direct URLs (may not work on macOS):"
-        echo "   Client UI:  http://$MINIKUBE_IP:$CLIENT_NODEPORT"
-        echo "   Server API: http://$MINIKUBE_IP:$SERVER_NODEPORT"
+        echo "   🚀 Recommended Access Methods:"
+        echo "   • Open Client:  $CLIENT_URL"
+        echo "   • Open Server:  $SERVER_URL"
+        echo ""
+        if [ -n "$CLIENT_TUNNEL_URL" ] && [ -n "$SERVER_TUNNEL_URL" ]; then
+            echo "   🌐 Direct Tunnel URLs (when running):"
+            echo "   • Client:  $CLIENT_TUNNEL_URL"
+            echo "   • Server:  $SERVER_TUNNEL_URL"
+            echo ""
+        fi
+        echo "   📝 Manual Commands:"
+        echo "   • Get Client URL:   minikube service chat-app-client -n chat-app --url"
+        echo "   • Get Server URL:   minikube service chat-app-server -n chat-app --url"
+        echo "   • Open Client UI:   minikube service chat-app-client -n chat-app"
+        echo ""
+        echo "   ⚡ NodePort URLs (backup - may not work):"
+        echo "   • Client:  http://$MINIKUBE_IP:$CLIENT_NODEPORT"
+        echo "   • Server:  http://$MINIKUBE_IP:$SERVER_NODEPORT"
     else
-        echo "   Client UI:  http://$MINIKUBE_IP:$CLIENT_NODEPORT"
-        echo "   Server API: http://$MINIKUBE_IP:$SERVER_NODEPORT"
+        echo "   Platform: $OSTYPE with $driver driver"
         echo ""
-        echo "   Minikube service URLs:"
-        echo "   Client UI:  $CLIENT_URL"
-        echo "   Server API: $SERVER_URL"
+        echo "   🌐 Service URLs:"
+        echo "   • Client UI:   $CLIENT_URL"
+        echo "   • Server API:  $SERVER_URL"
+        echo ""
+        echo "   🔗 Direct NodePort URLs:"
+        echo "   • Client:  http://$MINIKUBE_IP:$CLIENT_NODEPORT"
+        echo "   • Server:  http://$MINIKUBE_IP:$SERVER_NODEPORT"
+        echo ""
+        echo "   📝 Service Commands:"
+        echo "   • Open Client:     minikube service chat-app-client -n chat-app"
+        echo "   • Open Server:     minikube service chat-app-server -n chat-app"
     fi
     echo ""
     echo "🔧 Management Commands:"
@@ -978,21 +1021,54 @@ show_final_status() {
     echo "   Get URLs only:  minikube service chat-app-client -n chat-app --url"
     echo ""
     
-    # Quick status check
-    echo "📊 Current Status:"
-    kubectl get pods -n chat-app --no-headers | awk '{print "   " $1 ": " $3}' 
+    # Quick status check with health verification
+    echo ""
+    echo "📊 Deployment Status:"
+    
+    # Get pod status
+    local server_status=$(kubectl get pods -n chat-app -l app.kubernetes.io/component=server --no-headers 2>/dev/null | awk '{print $3}' | head -1)
+    local client_status=$(kubectl get pods -n chat-app -l app.kubernetes.io/component=client --no-headers 2>/dev/null | awk '{print $3}' | head -1)
+    
+    if [[ "$server_status" == "Running" ]]; then
+        echo "   ✅ Server: $server_status"
+    else
+        echo "   ⚠️  Server: $server_status"
+    fi
+    
+    if [[ "$client_status" == "Running" ]]; then
+        echo "   ✅ Client: $client_status"
+    else
+        echo "   ⚠️  Client: $client_status"
+    fi
+    
+    # Show all pods for complete picture
+    echo ""
+    echo "   All Pods:"
+    kubectl get pods -n chat-app --no-headers 2>/dev/null | awk '{print "     " $1 ": " $3}' || echo "     Unable to get pod status"
     echo ""
     
-    # Platform-specific browser suggestion
+    # Smart browser opening suggestions
     if [ "$CLIENT_NODEPORT" != "N/A" ]; then
-        if [[ "$OSTYPE" == "darwin"* ]] && [[ "$(minikube config get driver)" == "docker" ]]; then
-            echo "🚀 To open in browser:"
-            echo "   Run: minikube service chat-app-client -n chat-app"
-            echo "   This will start a tunnel and open the browser automatically"
+        echo "🚀 Quick Start:"
+        if [[ "$OSTYPE" == "darwin"* ]] && [[ "$driver" == "docker" ]]; then
+            echo "   1. Run: minikube service chat-app-client -n chat-app"
+            echo "      (This will start a tunnel and open your browser automatically)"
+            echo ""
+            echo "   2. Or manually open tunnel URLs when available:"
+            if [ -n "$CLIENT_TUNNEL_URL" ]; then
+                echo "      Client: $CLIENT_TUNNEL_URL"
+            else
+                echo "      Get URL: minikube service chat-app-client -n chat-app --url"
+            fi
         else
-            echo "🌐 Open in browser: http://$MINIKUBE_IP:$CLIENT_NODEPORT"
-            echo "   Or run: minikube service chat-app-client -n chat-app"
+            echo "   🌐 Direct access: http://$MINIKUBE_IP:$CLIENT_NODEPORT"
+            echo "   🔧 Service access: minikube service chat-app-client -n chat-app"
         fi
+        echo ""
+        echo "💡 Troubleshooting:"
+        echo "   • Check logs: kubectl logs -n chat-app -l app.kubernetes.io/component=client -f"
+        echo "   • Pod status: kubectl get pods -n chat-app"
+        echo "   • Services:   kubectl get services -n chat-app"
     fi
 }
 
@@ -1053,8 +1129,16 @@ collect_detailed_logs() {
 
 # Main execution
 main() {
-    echo "🚀 Chat Application Kubernetes Deployment"
-    echo "========================================="
+    echo -e "${PURPLE}🚀 Chat Application Kubernetes Deployment${NC}"
+    echo -e "${BLUE}=========================================${NC}"
+    echo -e "${BLUE}Version: $SCRIPT_VERSION | Updated: $LAST_UPDATED${NC}"
+    echo ""
+    
+    # Quick environment check
+    log_info "Deployment Environment:"
+    echo "   OS: $OSTYPE"
+    echo "   Working Directory: $(pwd)"
+    echo "   Timestamp: $(date)"
     echo ""
     
     # Install required software if not present

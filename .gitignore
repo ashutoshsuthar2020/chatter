@@ -20,6 +20,9 @@ k8s/secrets-local.yaml
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+logs_*/
+build-*.log
+deployment.log
 
 # Runtime data
 pids
