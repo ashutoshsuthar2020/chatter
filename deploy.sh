@@ -496,15 +496,6 @@ install_minikube_drivers() {
             fi
         fi
         
-        # Install VirtualBox if not present (as fallback)
-        if ! command -v VBoxManage &> /dev/null; then
-            if [[ "$DISTRO" == "Ubuntu/Debian" ]]; then
-                log_info "Installing VirtualBox as fallback driver..."
-                sudo apt-get install -y virtualbox virtualbox-ext-pack
-                log_success "VirtualBox driver installed"
-            fi
-        fi
-        
         # Install docker-machine-driver-kvm2 for better KVM support
         if command -v virsh &> /dev/null && ! command -v docker-machine-driver-kvm2 &> /dev/null; then
             log_info "Installing docker-machine-driver-kvm2..."
