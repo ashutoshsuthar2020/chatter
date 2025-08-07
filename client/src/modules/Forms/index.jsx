@@ -1,4 +1,3 @@
-import GoogleSignInButton from './../../components/GoogleSignInButton/index';
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import config from '../../config';
@@ -6,76 +5,84 @@ import config from '../../config';
 const Form = ({
     isSignInPage = true,
 }) => {
+    const [data, setData] = useState({
+        fullName: '',
+        phoneNumber: ''
+    });
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState('');
     const [success, setSuccess] = useState('');
 
     const navigate = useNavigate();
 
-    const handleGoogleSuccess = async (googleUserData) => {
+    const handleSubmit = async (e) => {
+        e.preventDefault();
         setIsLoading(true);
         setError('');
         setSuccess('');
 
         try {
-            const endpoint = isSignInPage ? 'login/google' : 'register/google';
-            const res = await fetch(`${config.API_URL}/api/${endpoint}`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify({
-                    googleId: googleUserData.googleId,
-                    email: googleUserData.email,
-                    fullName: googleUserData.fullName,
-                    firstName: googleUserData.firstName,
-                    lastName: googleUserData.lastName,
-                    picture: googleUserData.picture,
-                    credential: googleUserData.credential
-                })
-            });
+            if (isSignInPage) {
+                // Sign In - just need phone number
+                if (!data.phoneNumber) {
+                    setError('Phone number is required');
+                    setIsLoading(false);
+                    return;
+                }
 
-            const resData = await res.json();
+                const res = await fetch(`${config.API_URL}/api/login`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        phoneNumber: data.phoneNumber
+                    })
+                });
 
-            if (res.status === 200 || res.status === 201) {
-                if (resData.token) {
-                    localStorage.setItem('user:token', resData.token);
+                const resData = await res.json();
+
+                if (res.status === 200) {
                     localStorage.setItem('user:detail', JSON.stringify(resData.user));
-                    
-                    setSuccess('Authentication successful! Redirecting...');
+                    setSuccess('Login successful! Redirecting...');
                     setTimeout(() => navigate('/'), 1000);
                 } else {
-                    setError(resData.message || 'Authentication failed');
-                }
-            } else if (res.status === 400 && resData.message === 'User not found. Please sign up first.') {
-                // Auto-redirect to sign up if user doesn't exist during sign in
-                if (isSignInPage) {
-                    setError('Account not found. Redirecting to sign up...');
-                    setTimeout(() => navigate('/users/sign_up'), 2000);
-                } else {
-                    setError(resData.message);
-                }
-            } else if (res.status === 400 && resData.message === 'User already exists with this email') {
-                // Auto-redirect to sign in if user exists during sign up
-                if (!isSignInPage) {
-                    setError('Account already exists. Redirecting to sign in...');
-                    setTimeout(() => navigate('/users/sign_in'), 2000);
-                } else {
-                    setError(resData.message);
+                    setError(resData.message || 'Login failed');
                 }
             } else {
-                setError(resData.message || 'Authentication failed');
+                // Sign Up - need both name and phone number
+                if (!data.fullName || !data.phoneNumber) {
+                    setError('Full name and phone number are required');
+                    setIsLoading(false);
+                    return;
+                }
+                console.log('API URL:', `${config.API_URL}/api/register`);
+                const res = await fetch(`${config.API_URL}/api/register`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        fullName: data.fullName,
+                        phoneNumber: data.phoneNumber
+                    })
+                });
+
+                const resData = await res.json();
+
+                if (res.status === 201) {
+                    localStorage.setItem('user:detail', JSON.stringify(resData.user));
+                    setSuccess('Registration successful! Redirecting...');
+                    setTimeout(() => navigate('/'), 1000);
+                } else {
+                    setError(resData.message || 'Registration failed');
+                }
             }
         } catch (error) {
             setError('Network error. Please try again.');
         } finally {
             setIsLoading(false);
         }
-    };
-
-    const handleGoogleError = (error) => {
-        setError('Google authentication failed. Please try again.');
-        console.error('Google Sign-In Error:', error);
     };
 
     return (
@@ -96,14 +103,14 @@ const Form = ({
                         {isSignInPage ? 'Sign in to continue chatting with your friends' : 'Create your account to start chatting'}
                     </p>
                 </div>
-                
+
                 {/* Error Message */}
                 {error && (
                     <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-xl text-sm mb-6">
                         {error}
                     </div>
                 )}
-                
+
                 {/* Success Message */}
                 {success && (
                     <div className="bg-green-50 border border-green-200 text-green-700 px-4 py-3 rounded-xl text-sm mb-6">
@@ -111,20 +118,62 @@ const Form = ({
                     </div>
                 )}
 
-                {/* Google Sign-In Button */}
-                <div className="mb-6">
-                    <GoogleSignInButton
-                        onSuccess={handleGoogleSuccess}
-                        onError={handleGoogleError}
-                        isSignUp={!isSignInPage}
+                {/* Phone Number Form */}
+                <form onSubmit={handleSubmit} className="space-y-4 mb-6">
+                    {!isSignInPage && (
+                        <div>
+                            <label htmlFor="fullName" className="block text-sm font-medium text-neutral-700 mb-2">
+                                Full Name
+                            </label>
+                            <input
+                                type="text"
+                                id="fullName"
+                                value={data.fullName}
+                                onChange={(e) => setData({ ...data, fullName: e.target.value })}
+                                className="w-full px-4 py-3 border border-neutral-300 rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-primary-500 transition-colors"
+                                placeholder="Enter your full name"
+                                required={!isSignInPage}
+                                disabled={isLoading}
+                            />
+                        </div>
+                    )}
+
+                    <div>
+                        <label htmlFor="phoneNumber" className="block text-sm font-medium text-neutral-700 mb-2">
+                            Phone Number
+                        </label>
+                        <input
+                            type="tel"
+                            id="phoneNumber"
+                            value={data.phoneNumber}
+                            onChange={(e) => setData({ ...data, phoneNumber: e.target.value })}
+                            className="w-full px-4 py-3 border border-neutral-300 rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-primary-500 transition-colors"
+                            placeholder="Enter your phone number"
+                            required
+                            disabled={isLoading}
+                        />
+                    </div>
+
+                    <button
+                        type="submit"
                         disabled={isLoading}
-                    />
-                </div>
+                        className="w-full bg-primary-600 hover:bg-primary-700 disabled:bg-primary-300 text-white font-medium py-3 px-4 rounded-xl transition-colors focus:ring-2 focus:ring-primary-500 focus:ring-offset-2"
+                    >
+                        {isLoading ? (
+                            <div className="flex items-center justify-center">
+                                <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white mr-2"></div>
+                                {isSignInPage ? 'Signing in...' : 'Creating account...'}
+                            </div>
+                        ) : (
+                            isSignInPage ? 'Sign In' : 'Create Account'
+                        )}
+                    </button>
+                </form>
 
                 <div className="text-center text-sm text-neutral-600">
                     {isSignInPage ? "Don't have an account?" : "Already have an account?"}{' '}
-                    <span 
-                        className='text-primary-600 hover:text-primary-700 cursor-pointer font-medium transition-colors' 
+                    <span
+                        className='text-primary-600 hover:text-primary-700 cursor-pointer font-medium transition-colors'
                         onClick={() => navigate(`/users/${isSignInPage ? 'sign_up' : 'sign_in'}`)}
                     >
                         {isSignInPage ? 'Sign up' : 'Sign in'}

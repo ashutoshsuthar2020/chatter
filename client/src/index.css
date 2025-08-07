@@ -65,24 +65,15 @@ select {
   animation: fadeIn 0.3s ease-out;
 }
 
-/* Google Sign-In Button Customization */
-.google-signin-wrapper {
-  width: 100%;
-}
-
-.google-signin-wrapper>div {
-  width: 100% !important;
-  border-radius: 12px !important;
-  border: 1px solid #e5e7eb !important;
-  transition: all 0.2s ease-in-out !important;
-}
-
-.google-signin-wrapper>div:hover {
-  border-color: #6366f1 !important;
-  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1) !important;
-}
-
 code {
   font-family: source-code-pro, Menlo, Monaco, Consolas, 'Courier New',
     monospace;
+}
+
+/* Line clamp utility */
+.line-clamp-2 {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }

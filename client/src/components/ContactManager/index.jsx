@@ -3,14 +3,14 @@ import Button from '../Button';
 import Input from '../Input';
 
 const ContactManager = ({ user, onContactAdded, onContactRemoved, onChatDeleted }) => {
-    const [newContactEmail, setNewContactEmail] = useState('');
+    const [newContactPhoneNumber, setNewContactPhoneNumber] = useState('');
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState('');
     const [success, setSuccess] = useState('');
 
     const addContact = async (e) => {
         e.preventDefault();
-        if (!newContactEmail.trim()) return;
+        if (!newContactPhoneNumber.trim()) return;
 
         setIsLoading(true);
         setError('');
@@ -24,7 +24,7 @@ const ContactManager = ({ user, onContactAdded, onContactRemoved, onChatDeleted 
                 },
                 body: JSON.stringify({
                     userId: user?.id,
-                    contactEmail: newContactEmail.trim()
+                    contactPhoneNumber: newContactPhoneNumber.trim()
                 })
             });
 
@@ -32,7 +32,7 @@ const ContactManager = ({ user, onContactAdded, onContactRemoved, onChatDeleted 
 
             if (res.ok) {
                 setSuccess('Contact added successfully!');
-                setNewContactEmail('');
+                setNewContactPhoneNumber('');
                 onContactAdded && onContactAdded(data.contact);
             } else {
                 setError(data.error || 'Failed to add contact');
@@ -103,8 +103,8 @@ const ContactManager = ({ user, onContactAdded, onContactRemoved, onChatDeleted 
         addContact,
         removeContact,
         deleteChat,
-        newContactEmail,
-        setNewContactEmail,
+        newContactPhoneNumber,
+        setNewContactPhoneNumber,
         isLoading,
         error,
         success,
@@ -116,8 +116,8 @@ const ContactManager = ({ user, onContactAdded, onContactRemoved, onChatDeleted 
 const AddContactForm = ({ user, onContactAdded }) => {
     const {
         addContact,
-        newContactEmail,
-        setNewContactEmail,
+        newContactPhoneNumber,
+        setNewContactPhoneNumber,
         isLoading,
         error,
         success,
@@ -142,22 +142,21 @@ const AddContactForm = ({ user, onContactAdded }) => {
 
             <form onSubmit={addContact} className="space-y-3">
                 <Input
-                    type="email"
-                    placeholder="Enter contact's email address"
-                    value={newContactEmail}
-                    onChange={(e) => setNewContactEmail(e.target.value)}
+                    type="tel"
+                    placeholder="Enter contact's phone number"
+                    value={newContactPhoneNumber}
+                    onChange={(e) => setNewContactPhoneNumber(e.target.value)}
                     disabled={isLoading}
                     className="w-full"
                 />
 
                 <Button
                     type="submit"
-                    disabled={isLoading || !newContactEmail.trim()}
+                    disabled={isLoading || !newContactPhoneNumber.trim()}
                     className="w-full"
                     variant="primary"
-                >
-                    {isLoading ? 'Adding...' : 'Add Contact'}
-                </Button>
+                    label={isLoading ? 'Adding...' : 'Add Contact'}
+                />
             </form>
 
             {error && (

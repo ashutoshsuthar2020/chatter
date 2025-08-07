@@ -9,7 +9,6 @@ const GoogleSignInButton = ({ onSuccess, onError, isSignUp = false, disabled = f
 
             const googleUserData = {
                 googleId: decoded.sub,
-                email: decoded.email,
                 fullName: decoded.name,
                 firstName: decoded.given_name,
                 lastName: decoded.family_name,
