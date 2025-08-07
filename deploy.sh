@@ -348,25 +348,25 @@ install_software() {
             elif command -v podman &> /dev/null; then
                 log_info "Setting Podman as driver (Docker not available)..."
                 minikube config set driver podman
-            else
-                # Install VirtualBox as fallback
-                log_warning "Neither Docker nor Podman available. Installing VirtualBox driver..."
-                if [[ "$DISTRO" == "Ubuntu/Debian" ]]; then
-                    sudo apt-get update
-                    sudo apt-get install -y virtualbox virtualbox-ext-pack
-                    minikube config set driver virtualbox
-                elif [[ "$DISTRO" == "RHEL/CentOS" ]] || [[ "$DISTRO" == "Fedora" ]]; then
-                    if command -v dnf &> /dev/null; then
-                        sudo dnf install -y VirtualBox
-                    else
-                        sudo yum install -y VirtualBox
-                    fi
-                    minikube config set driver virtualbox
-                else
-                    log_warning "No suitable driver found. Will attempt to use none driver (requires root)"
-                    minikube config set driver none
-                fi
-            fi
+            # else
+            #     # Install VirtualBox as fallback
+            #     log_warning "Neither Docker nor Podman available. Installing VirtualBox driver..."
+            #     if [[ "$DISTRO" == "Ubuntu/Debian" ]]; then
+            #         sudo apt-get update
+            #         sudo apt-get install -y virtualbox virtualbox-ext-pack
+            #         minikube config set driver virtualbox
+            #     elif [[ "$DISTRO" == "RHEL/CentOS" ]] || [[ "$DISTRO" == "Fedora" ]]; then
+            #         if command -v dnf &> /dev/null; then
+            #             sudo dnf install -y VirtualBox
+            #         else
+            #             sudo yum install -y VirtualBox
+            #         fi
+            #         minikube config set driver virtualbox
+            #     else
+            #         log_warning "No suitable driver found. Will attempt to use none driver (requires root)"
+            #         minikube config set driver none
+            #     fi
+            # fi
         fi
         
         # Start minikube if not running
