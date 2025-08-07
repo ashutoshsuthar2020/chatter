@@ -327,13 +327,6 @@ install_software() {
                 elif command -v podman &> /dev/null; then
                     log_info "Setting Podman as driver..."
                     minikube config set driver podman
-                else
-                    log_warning "Installing VirtualBox as fallback driver..."
-                    if [[ "$DISTRO" == "Ubuntu/Debian" ]]; then
-                        sudo apt-get update
-                        sudo apt-get install -y virtualbox virtualbox-ext-pack
-                        minikube config set driver virtualbox
-                    fi
                 fi
             elif command -v docker &> /dev/null && docker ps &> /dev/null; then
                 log_info "Setting Docker as default driver for Linux..."
@@ -348,25 +341,6 @@ install_software() {
             elif command -v podman &> /dev/null; then
                 log_info "Setting Podman as driver (Docker not available)..."
                 minikube config set driver podman
-            # else
-            #     # Install VirtualBox as fallback
-            #     log_warning "Neither Docker nor Podman available. Installing VirtualBox driver..."
-            #     if [[ "$DISTRO" == "Ubuntu/Debian" ]]; then
-            #         sudo apt-get update
-            #         sudo apt-get install -y virtualbox virtualbox-ext-pack
-            #         minikube config set driver virtualbox
-            #     elif [[ "$DISTRO" == "RHEL/CentOS" ]] || [[ "$DISTRO" == "Fedora" ]]; then
-            #         if command -v dnf &> /dev/null; then
-            #             sudo dnf install -y VirtualBox
-            #         else
-            #             sudo yum install -y VirtualBox
-            #         fi
-            #         minikube config set driver virtualbox
-            #     else
-            #         log_warning "No suitable driver found. Will attempt to use none driver (requires root)"
-            #         minikube config set driver none
-            #     fi
-            # fi
         fi
         
         # Start minikube if not running
@@ -392,10 +366,10 @@ install_software() {
             # Linux: Try multiple drivers in order of preference
             if [[ "$FORCE_ALT_DRIVER" == "true" ]]; then
                 # Skip Docker due to permission issues
-                DRIVERS_TO_TRY=("kvm2" "podman" "virtualbox")
+                DRIVERS_TO_TRY=("kvm2" "podman")
                 log_info "Skipping Docker driver due to permission issues"
             else
-                DRIVERS_TO_TRY=("docker" "kvm2" "podman" "virtualbox")
+                DRIVERS_TO_TRY=("docker" "kvm2" "podman")
             fi
             
             MINIKUBE_STARTED=false
@@ -432,23 +406,13 @@ install_software() {
                             fi
                         fi
                         ;;
-                    "virtualbox")
-                        if command -v VBoxManage &> /dev/null; then
-                            log_info "Attempting to start minikube with VirtualBox driver..."
-                            if minikube start --driver=virtualbox --cpus=2 --memory=4096; then
-                                log_success "minikube started successfully with VirtualBox driver"
-                                MINIKUBE_STARTED=true
-                                break
-                            fi
-                        fi
-                        ;;
                 esac
             done
             
             if [ "$MINIKUBE_STARTED" = false ]; then
                 log_error "Failed to start minikube with any available driver"
                 log_info "Available drivers attempted: ${DRIVERS_TO_TRY[*]}"
-                log_info "Please install Docker or VirtualBox and try again"
+                log_info "Please install Docker or install KVM2/Podman drivers and try again"
                 exit 1
             fi
         fi
@@ -570,23 +534,6 @@ install_minikube_drivers() {
                 sudo systemctl enable libvirtd
                 sudo systemctl start libvirtd
                 log_success "KVM2 driver installed"
-            fi
-        fi
-        
-        # Install VirtualBox as reliable fallback (especially for Docker permission issues)
-        if ! command -v VBoxManage &> /dev/null; then
-            if [[ "$DISTRO" == "Ubuntu/Debian" ]]; then
-                log_info "Installing VirtualBox as fallback driver..."
-                sudo apt-get install -y virtualbox virtualbox-ext-pack
-                log_success "VirtualBox driver installed"
-            elif [[ "$DISTRO" == "RHEL/CentOS" ]] || [[ "$DISTRO" == "Fedora" ]]; then
-                log_info "Installing VirtualBox for RHEL/CentOS/Fedora..."
-                if command -v dnf &> /dev/null; then
-                    sudo dnf install -y VirtualBox
-                else
-                    sudo yum install -y VirtualBox
-                fi
-                log_success "VirtualBox driver installed"
             fi
         fi
         
