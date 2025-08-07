@@ -12,16 +12,121 @@ const MessageDeliveryService = require('./services/messageDeliveryService');
 
 // app Use[/]
 const app = express();
-app.use(cors());
+
+// Configure CORS with dynamic origins for development
+const corsOptions = {
+    origin: function (origin, callback) {
+        // Allow requests with no origin (mobile apps, etc.)
+        if (!origin) return callback(null, true);
+        
+        // Define allowed origins with patterns
+        const allowedOrigins = [
+            // Standard localhost patterns
+            /^https?:\/\/localhost(:\d+)?$/,
+            /^https?:\/\/127\.0\.0\.1(:\d+)?$/,
+            /^https?:\/\/0\.0\.0\.0(:\d+)?$/,
+            // Minikube and tunnel patterns
+            /^https?:\/\/192\.168\.\d+\.\d+(:\d+)?$/,
+            /^https?:\/\/10\.\d+\.\d+\.\d+(:\d+)?$/,
+            // Specific known origins
+            'http://localhost:3000',
+            'http://localhost:3001', 
+            'http://localhost:3006',
+            'http://localhost:3007',
+            'http://127.0.0.1:3000',
+            'http://0.0.0.0:3000'
+        ];
+        
+        // Check if origin matches any pattern
+        const isAllowed = allowedOrigins.some(pattern => {
+            if (typeof pattern === 'string') {
+                return origin === pattern;
+            } else if (pattern instanceof RegExp) {
+                return pattern.test(origin);
+            }
+            return false;
+        });
+        
+        if (isAllowed) {
+            callback(null, true);
+        } else {
+            console.log('CORS blocked origin:', origin);
+            callback(new Error('Not allowed by CORS'));
+        }
+    },
+    credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With']
+};
+
+app.use(cors(corsOptions));
 app.use(express.json({ limit: '10mb' })); // Increase limit for image uploads
 app.use(express.urlencoded({ extended: false, limit: '10mb' }));
+
+// Add debugging middleware for CORS
+app.use((req, res, next) => {
+    console.log(`${new Date().toISOString()} - ${req.method} ${req.url} - Origin: ${req.headers.origin || 'none'}`);
+    next();
+});
+
+// Health check endpoint
+app.get('/health', (req, res) => {
+    res.status(200).json({ 
+        status: 'OK', 
+        timestamp: new Date().toISOString(),
+        origin: req.headers.origin || 'none'
+    });
+});
+
+// CORS test endpoint
+app.get('/cors-test', (req, res) => {
+    res.status(200).json({ 
+        message: 'CORS is working',
+        origin: req.headers.origin || 'none',
+        timestamp: new Date().toISOString()
+    });
+});
 
 // Create HTTP server and attach Socket.IO to the same port
 const server = require('http').createServer(app);
 const io = require('socket.io')(server, {
     cors: {
-        origin: ['http://localhost:3000', 'http://localhost:3001', 'http://localhost:3006', 'http://localhost:3007'],
-        methods: ['GET', 'POST']
+        origin: function (origin, callback) {
+            // Allow requests with no origin (mobile apps, etc.)
+            if (!origin) return callback(null, true);
+            
+            // Define allowed origins with patterns (same as HTTP CORS)
+            const allowedOrigins = [
+                // Standard localhost patterns
+                /^https?:\/\/localhost(:\d+)?$/,
+                /^https?:\/\/127\.0\.0\.1(:\d+)?$/,
+                /^https?:\/\/0\.0\.0\.0(:\d+)?$/,
+                // Minikube and tunnel patterns
+                /^https?:\/\/192\.168\.\d+\.\d+(:\d+)?$/,
+                /^https?:\/\/10\.\d+\.\d+\.\d+(:\d+)?$/,
+                // Specific known origins
+                'http://localhost:3000',
+                'http://localhost:3001', 
+                'http://localhost:3006',
+                'http://localhost:3007',
+                'http://127.0.0.1:3000',
+                'http://0.0.0.0:3000'
+            ];
+            
+            // Check if origin matches any pattern
+            const isAllowed = allowedOrigins.some(pattern => {
+                if (typeof pattern === 'string') {
+                    return origin === pattern;
+                } else if (pattern instanceof RegExp) {
+                    return pattern.test(origin);
+                }
+                return false;
+            });
+            
+            callback(null, isAllowed);
+        },
+        methods: ['GET', 'POST'],
+        credentials: true
     }
 })
 

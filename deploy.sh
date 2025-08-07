@@ -852,19 +852,30 @@ configure_external_access() {
         # Try to get the actual server URL for API configuration
         SERVER_API_URL="http://$MINIKUBE_IP:$SERVER_NODEPORT"
         if [[ "$OSTYPE" == "darwin"* ]] && [[ "$driver" == "docker" ]]; then
-            # For macOS Docker driver, we'll use a generic localhost URL that will be tunneled
-            SERVER_API_URL="http://localhost:$SERVER_NODEPORT"
-            log_info "Using localhost URL for API configuration (will work with minikube tunnel)"
+            # For macOS Docker driver, get the actual tunnel URL
+            log_info "Getting tunnel URL for API configuration..."
+            TUNNEL_URL=$(timeout 5s minikube service chat-app-server -n $NAMESPACE --url 2>/dev/null | head -1)
+            if [ -n "$TUNNEL_URL" ]; then
+                SERVER_API_URL="$TUNNEL_URL"
+                log_info "Using tunnel URL for API: $SERVER_API_URL"
+            else
+                # Fallback to localhost with dynamic port detection
+                SERVER_API_URL="http://localhost:$SERVER_NODEPORT"
+                log_info "Using localhost URL for API configuration (will work with minikube tunnel)"
+            fi
         fi
+        
+        log_info "Configuring client with API URL: $SERVER_API_URL"
         
         if helm upgrade $HELM_RELEASE $CHART_PATH \
             --namespace $NAMESPACE \
             --set server.service.type=NodePort \
             --set client.service.type=NodePort \
             --set global.reactAppApiUrl="$SERVER_API_URL" \
+            --set global.reactAppWsUrl="$SERVER_API_URL" \
             --timeout 5m \
             --reuse-values; then
-            log_success "API URL updated successfully"
+            log_success "API URL updated successfully to: $SERVER_API_URL"
         else
             log_warning "Failed to update API URL, but deployment may still work"
         fi
