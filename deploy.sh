@@ -301,19 +301,129 @@ install_software() {
         fi
         log_success "minikube installed successfully"
         
+        # Install and configure minikube drivers
+        log_info "Configuring minikube drivers..."
+        if [[ "$OSTYPE" == "darwin"* ]]; then
+            # On macOS, ensure Docker Desktop is the default driver
+            log_info "Setting Docker as default driver for macOS..."
+            minikube config set driver docker
+            
+            # Check if Docker Desktop is running
+            if ! docker system info &>/dev/null; then
+                log_warning "Docker Desktop not running. Please start Docker Desktop and re-run the script."
+                log_info "You can start it with: open -a Docker"
+                exit 1
+            fi
+        elif [[ "$OSTYPE" == "linux-gnu"* ]]; then
+            # On Linux, configure appropriate drivers
+            if command -v docker &> /dev/null && docker ps &> /dev/null; then
+                log_info "Setting Docker as default driver for Linux..."
+                minikube config set driver docker
+                
+                # Ensure user is in docker group for proper permissions
+                if ! groups | grep -q docker; then
+                    log_warning "Adding user to docker group for minikube driver access..."
+                    sudo usermod -aG docker $USER
+                    log_warning "Please log out and back in, or run: newgrp docker"
+                fi
+            elif command -v podman &> /dev/null; then
+                log_info "Setting Podman as driver (Docker not available)..."
+                minikube config set driver podman
+            else
+                # Install VirtualBox as fallback
+                log_warning "Neither Docker nor Podman available. Installing VirtualBox driver..."
+                if [[ "$DISTRO" == "Ubuntu/Debian" ]]; then
+                    sudo apt-get update
+                    sudo apt-get install -y virtualbox virtualbox-ext-pack
+                    minikube config set driver virtualbox
+                elif [[ "$DISTRO" == "RHEL/CentOS" ]] || [[ "$DISTRO" == "Fedora" ]]; then
+                    if command -v dnf &> /dev/null; then
+                        sudo dnf install -y VirtualBox
+                    else
+                        sudo yum install -y VirtualBox
+                    fi
+                    minikube config set driver virtualbox
+                else
+                    log_warning "No suitable driver found. Will attempt to use none driver (requires root)"
+                    minikube config set driver none
+                fi
+            fi
+        fi
+        
         # Start minikube if not running
         log_info "Starting minikube..."
+        MINIKUBE_DRIVER=$(minikube config get driver 2>/dev/null || echo "auto")
+        log_info "Using minikube driver: $MINIKUBE_DRIVER"
+        
         if [[ "$OSTYPE" == "darwin"* ]]; then
-            minikube start --driver=docker
-        else
-            # For Linux, check if we should use docker or podman
-            if command -v docker &> /dev/null && docker ps &> /dev/null; then
-                minikube start --driver=docker
-            elif command -v podman &> /dev/null; then
-                minikube start --driver=podman
+            # macOS: Use Docker driver with resource allocation
+            if minikube start --driver=docker --cpus=2 --memory=4096 --disk-size=20g; then
+                log_success "minikube started successfully with Docker driver"
             else
-                # Fallback to VirtualBox or none driver
-                minikube start
+                log_error "Failed to start minikube with Docker driver"
+                log_info "Trying with HyperKit driver as fallback..."
+                if minikube start --driver=hyperkit --cpus=2 --memory=4096; then
+                    log_success "minikube started with HyperKit driver"
+                else
+                    log_error "Failed to start minikube. Please check Docker Desktop installation"
+                    exit 1
+                fi
+            fi
+        else
+            # Linux: Try multiple drivers in order of preference
+            DRIVERS_TO_TRY=("docker" "podman" "virtualbox" "kvm2")
+            MINIKUBE_STARTED=false
+            
+            for driver in "${DRIVERS_TO_TRY[@]}"; do
+                case $driver in
+                    "docker")
+                        if command -v docker &> /dev/null && docker ps &> /dev/null; then
+                            log_info "Attempting to start minikube with Docker driver..."
+                            if minikube start --driver=docker --cpus=2 --memory=4096 --disk-size=20g; then
+                                log_success "minikube started successfully with Docker driver"
+                                MINIKUBE_STARTED=true
+                                break
+                            fi
+                        fi
+                        ;;
+                    "podman")
+                        if command -v podman &> /dev/null; then
+                            log_info "Attempting to start minikube with Podman driver..."
+                            if minikube start --driver=podman --cpus=2 --memory=4096; then
+                                log_success "minikube started successfully with Podman driver"
+                                MINIKUBE_STARTED=true
+                                break
+                            fi
+                        fi
+                        ;;
+                    "virtualbox")
+                        if command -v VBoxManage &> /dev/null; then
+                            log_info "Attempting to start minikube with VirtualBox driver..."
+                            if minikube start --driver=virtualbox --cpus=2 --memory=4096; then
+                                log_success "minikube started successfully with VirtualBox driver"
+                                MINIKUBE_STARTED=true
+                                break
+                            fi
+                        fi
+                        ;;
+                    "kvm2")
+                        if command -v virsh &> /dev/null; then
+                            log_info "Attempting to start minikube with KVM2 driver..."
+                            if minikube start --driver=kvm2 --cpus=2 --memory=4096; then
+                                log_success "minikube started successfully with KVM2 driver"
+                                MINIKUBE_STARTED=true
+                                break
+                            fi
+                        fi
+                        ;;
+                esac
+            done
+            
+            if [ "$MINIKUBE_STARTED" = false ]; then
+                log_error "Failed to start minikube with any available driver"
+                log_info "Available drivers attempted: ${DRIVERS_TO_TRY[*]}"
+                log_info "Please install Docker or VirtualBox and try again"
+                exit 1
             fi
         fi
         log_success "minikube started successfully"
@@ -358,6 +468,52 @@ install_software() {
     echo "  kubectl: $(kubectl version --client --short 2>/dev/null)"
     echo "  Helm: $(helm version --short 2>/dev/null)"
     echo "  minikube: $(minikube version --short 2>/dev/null)"
+}
+
+# Function to install additional minikube drivers if needed
+install_minikube_drivers() {
+    if [[ "$OSTYPE" == "linux-gnu"* ]]; then
+        log_step "Installing Additional minikube Drivers (Linux)"
+        
+        # Install KVM2 driver if not present
+        if ! command -v virsh &> /dev/null; then
+            if [[ "$DISTRO" == "Ubuntu/Debian" ]]; then
+                log_info "Installing KVM2 driver for Ubuntu/Debian..."
+                sudo apt-get install -y qemu-kvm libvirt-daemon-system libvirt-clients bridge-utils
+                sudo usermod -aG libvirt $USER
+                log_success "KVM2 driver installed"
+            elif [[ "$DISTRO" == "RHEL/CentOS" ]] || [[ "$DISTRO" == "Fedora" ]]; then
+                log_info "Installing KVM2 driver for RHEL/CentOS/Fedora..."
+                if command -v dnf &> /dev/null; then
+                    sudo dnf install -y qemu-kvm libvirt virt-install bridge-utils
+                else
+                    sudo yum install -y qemu-kvm libvirt virt-install bridge-utils
+                fi
+                sudo usermod -aG libvirt $USER
+                sudo systemctl enable libvirtd
+                sudo systemctl start libvirtd
+                log_success "KVM2 driver installed"
+            fi
+        fi
+        
+        # Install VirtualBox if not present (as fallback)
+        if ! command -v VBoxManage &> /dev/null; then
+            if [[ "$DISTRO" == "Ubuntu/Debian" ]]; then
+                log_info "Installing VirtualBox as fallback driver..."
+                sudo apt-get install -y virtualbox virtualbox-ext-pack
+                log_success "VirtualBox driver installed"
+            fi
+        fi
+        
+        # Install docker-machine-driver-kvm2 for better KVM support
+        if command -v virsh &> /dev/null && ! command -v docker-machine-driver-kvm2 &> /dev/null; then
+            log_info "Installing docker-machine-driver-kvm2..."
+            curl -LO https://storage.googleapis.com/minikube/releases/latest/docker-machine-driver-kvm2
+            sudo install docker-machine-driver-kvm2 /usr/local/bin/
+            rm docker-machine-driver-kvm2
+            log_success "docker-machine-driver-kvm2 installed"
+        fi
+    fi
 }
 
 # Logging functions
@@ -432,6 +588,19 @@ check_prerequisites() {
     # Check minikube IP accessibility
     MINIKUBE_IP=$(minikube ip)
     log_info "Minikube cluster IP: $MINIKUBE_IP"
+    
+    # Check minikube driver
+    CURRENT_DRIVER=$(minikube config get driver 2>/dev/null || echo "auto")
+    log_info "Minikube driver: $CURRENT_DRIVER"
+    
+    # Verify driver is working
+    if [[ "$CURRENT_DRIVER" == "docker" ]]; then
+        if ! docker ps &>/dev/null; then
+            log_warning "Docker driver configured but Docker is not accessible"
+        else
+            log_success "Docker driver is working correctly"
+        fi
+    fi
 }
 
 # Function to build Docker images
@@ -759,6 +928,11 @@ main() {
     
     # Install required software if not present
     install_software
+    
+    # Install additional minikube drivers if on Linux
+    if [[ "$OSTYPE" == "linux-gnu"* ]]; then
+        install_minikube_drivers
+    fi
     
     # Run all deployment phases
     check_prerequisites

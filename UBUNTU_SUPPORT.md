@@ -105,11 +105,27 @@ newgrp docker          # Apply in current session
 ```
 
 ### minikube Driver Selection
-The script automatically selects the best driver:
+The script automatically selects and installs the best driver:
 1. **Docker** (preferred if available)
-2. **Podman** (if Docker not available)
-3. **VirtualBox** (fallback)
-4. **None** (bare metal, last resort)
+2. **KVM2** (native virtualization for Linux)
+3. **Podman** (alternative container runtime)
+4. **VirtualBox** (cross-platform fallback)
+5. **None** (bare metal, last resort)
+
+### Driver Installation
+The script automatically installs required drivers:
+```bash
+# KVM2 driver (preferred for Linux)
+sudo apt-get install -y qemu-kvm libvirt-daemon-system libvirt-clients bridge-utils
+sudo usermod -aG libvirt $USER
+
+# VirtualBox driver (fallback)
+sudo apt-get install -y virtualbox virtualbox-ext-pack
+
+# docker-machine-driver-kvm2 (enhanced KVM support)
+curl -LO https://storage.googleapis.com/minikube/releases/latest/docker-machine-driver-kvm2
+sudo install docker-machine-driver-kvm2 /usr/local/bin/
+```
 
 ## 🚀 Usage on Ubuntu
 

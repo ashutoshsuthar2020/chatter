@@ -38,6 +38,8 @@
 - **Installs**: Docker, kubectl, Helm, minikube if not present
 - **Features**: Version checking, platform detection, dependency validation, proper package repositories
 - **Ubuntu Support**: Official Docker CE, Kubernetes, and Helm repositories with GPG verification
+- **Architecture Support**: Automatic detection and installation of correct packages for amd64/arm64
+- **Driver Installation**: Automatic minikube driver installation (Docker, KVM2, VirtualBox, Podman)
 - **Result**: Zero-setup deployment experience for new environments across multiple platforms
 
 ## 📁 Files Updated
