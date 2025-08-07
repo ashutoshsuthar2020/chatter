@@ -555,7 +555,7 @@ check_prerequisites() {
     log_success "Docker is available (v$DOCKER_VERSION)"
     
     # Verify Docker is actually running
-    if ! docker ps &>/dev/null; then
+    if ! sudo docker ps &>/dev/null; then
         log_error "Docker is installed but not running. Please start Docker and try again"
         exit 1
     fi
