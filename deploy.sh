@@ -18,6 +18,263 @@ CHART_PATH="./helm/chat-app"
 SERVER_IMAGE="myrepo/chat-server:latest"
 CLIENT_IMAGE="myrepo/chat-client:latest"
 
+# Function to install software if not present
+install_software() {
+    log_step "Checking and Installing Required Software"
+    
+    # Detect OS and setup package manager
+    if [[ "$OSTYPE" == "darwin"* ]]; then
+        OS="macOS"
+        # Check if Homebrew is installed (for macOS)
+        if ! command -v brew &> /dev/null; then
+            log_warning "Homebrew not found. Installing Homebrew..."
+            /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+            # Add Homebrew to PATH for this session
+            echo 'eval "$(/opt/homebrew/bin/brew shellenv)"' >> ~/.zprofile
+            eval "$(/opt/homebrew/bin/brew shellenv)"
+            log_success "Homebrew installed successfully"
+        else
+            log_success "Homebrew is already installed"
+        fi
+    elif [[ "$OSTYPE" == "linux-gnu"* ]]; then
+        OS="Linux"
+        # Detect Linux distribution
+        if command -v apt-get &> /dev/null; then
+            DISTRO="Ubuntu/Debian"
+            log_info "Detected Ubuntu/Debian system"
+            # Update package list
+            log_info "Updating package list..."
+            sudo apt-get update -qq
+        elif command -v yum &> /dev/null; then
+            DISTRO="RHEL/CentOS"
+            log_info "Detected RHEL/CentOS system"
+        elif command -v dnf &> /dev/null; then
+            DISTRO="Fedora"
+            log_info "Detected Fedora system"
+        else
+            DISTRO="Unknown"
+            log_warning "Unknown Linux distribution, will attempt generic installation"
+        fi
+    else
+        OS="Unknown"
+        log_warning "Unknown operating system: $OSTYPE"
+    fi
+    
+    log_info "Operating System: $OS"
+    if [[ "$OS" == "Linux" ]]; then
+        log_info "Distribution: $DISTRO"
+    fi
+    
+    # Check and install Docker
+    if ! command -v docker &> /dev/null; then
+        log_warning "Docker not found. Installing Docker..."
+        if [[ "$OSTYPE" == "darwin"* ]]; then
+            log_info "Installing Docker Desktop for macOS..."
+            brew install --cask docker
+            log_warning "Please start Docker Desktop manually and then re-run this script"
+            log_info "You can start Docker Desktop from Applications or run: open -a Docker"
+            exit 1
+        elif [[ "$OSTYPE" == "linux-gnu"* ]]; then
+            if [[ "$DISTRO" == "Ubuntu/Debian" ]]; then
+                log_info "Installing Docker for Ubuntu/Debian..."
+                # Install prerequisites
+                sudo apt-get install -y apt-transport-https ca-certificates curl gnupg lsb-release
+                
+                # Add Docker's official GPG key
+                sudo mkdir -p /etc/apt/keyrings
+                curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+                
+                # Add Docker repository
+                echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable" | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+                
+                # Update and install Docker
+                sudo apt-get update
+                sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+                
+                # Add user to docker group
+                sudo usermod -aG docker $USER
+                
+                # Start and enable Docker service
+                sudo systemctl start docker
+                sudo systemctl enable docker
+                
+                log_success "Docker installed successfully"
+                log_warning "Please log out and back in for group permissions, or run: newgrp docker"
+            else
+                log_info "Installing Docker using generic script..."
+                curl -fsSL https://get.docker.com -o get-docker.sh
+                sudo sh get-docker.sh
+                sudo usermod -aG docker $USER
+                log_warning "Please log out and back in, then re-run this script"
+                exit 1
+            fi
+        fi
+    else
+        log_success "Docker is already installed"
+    fi
+    
+    # Check and install kubectl
+    if ! command -v kubectl &> /dev/null; then
+        log_warning "kubectl not found. Installing kubectl..."
+        if [[ "$OSTYPE" == "darwin"* ]]; then
+            brew install kubectl
+        elif [[ "$OSTYPE" == "linux-gnu"* ]]; then
+            if [[ "$DISTRO" == "Ubuntu/Debian" ]]; then
+                log_info "Installing kubectl for Ubuntu/Debian..."
+                # Add Kubernetes GPG key
+                sudo mkdir -p /etc/apt/keyrings
+                curl -fsSL https://pkgs.k8s.io/core:/stable:/v1.28/deb/Release.key | sudo gpg --dearmor -o /etc/apt/keyrings/kubernetes-apt-keyring.gpg
+                
+                # Add Kubernetes repository
+                echo 'deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg] https://pkgs.k8s.io/core:/stable:/v1.28/deb/ /' | sudo tee /etc/apt/sources.list.d/kubernetes.list
+                
+                # Update and install kubectl
+                sudo apt-get update
+                sudo apt-get install -y kubectl
+            else
+                # Generic Linux installation
+                log_info "Installing kubectl (generic Linux)..."
+                curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+                sudo install -o root -g root -m 0755 kubectl /usr/local/bin/kubectl
+                rm kubectl
+            fi
+        fi
+        log_success "kubectl installed successfully"
+    else
+        log_success "kubectl is already installed"
+    fi
+    
+    # Check and install Helm
+    if ! command -v helm &> /dev/null; then
+        log_warning "Helm not found. Installing Helm..."
+        if [[ "$OSTYPE" == "darwin"* ]]; then
+            brew install helm
+        elif [[ "$OSTYPE" == "linux-gnu"* ]]; then
+            if [[ "$DISTRO" == "Ubuntu/Debian" ]]; then
+                log_info "Installing Helm for Ubuntu/Debian..."
+                # Add Helm GPG key
+                curl https://baltocdn.com/helm/signing.asc | gpg --dearmor | sudo tee /usr/share/keyrings/helm.gpg > /dev/null
+                
+                # Add Helm repository
+                echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/helm.gpg] https://baltocdn.com/helm/stable/debian/ all main" | sudo tee /etc/apt/sources.list.d/helm-stable-debian.list
+                
+                # Update and install Helm
+                sudo apt-get update
+                sudo apt-get install -y helm
+            elif [[ "$DISTRO" == "RHEL/CentOS" ]]; then
+                log_info "Installing Helm for RHEL/CentOS..."
+                curl -fsSL -o get_helm.sh https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3
+                chmod 700 get_helm.sh
+                ./get_helm.sh
+                rm get_helm.sh
+            elif [[ "$DISTRO" == "Fedora" ]]; then
+                log_info "Installing Helm for Fedora..."
+                sudo dnf install -y helm
+            else
+                # Generic installation using script
+                log_info "Installing Helm (generic method)..."
+                curl -fsSL -o get_helm.sh https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3
+                chmod 700 get_helm.sh
+                ./get_helm.sh
+                rm get_helm.sh
+            fi
+        fi
+        log_success "Helm installed successfully"
+    else
+        log_success "Helm is already installed"
+    fi
+    
+    # Check and install minikube
+    if ! command -v minikube &> /dev/null; then
+        log_warning "minikube not found. Installing minikube..."
+        if [[ "$OSTYPE" == "darwin"* ]]; then
+            brew install minikube
+        elif [[ "$OSTYPE" == "linux-gnu"* ]]; then
+            if [[ "$DISTRO" == "Ubuntu/Debian" ]]; then
+                log_info "Installing minikube for Ubuntu/Debian..."
+                # Download and install minikube
+                curl -LO https://storage.googleapis.com/minikube/releases/latest/minikube_latest_amd64.deb
+                sudo dpkg -i minikube_latest_amd64.deb
+                rm minikube_latest_amd64.deb
+            elif [[ "$DISTRO" == "RHEL/CentOS" ]]; then
+                log_info "Installing minikube for RHEL/CentOS..."
+                curl -LO https://storage.googleapis.com/minikube/releases/latest/minikube-latest.x86_64.rpm
+                sudo rpm -Uvh minikube-latest.x86_64.rpm
+                rm minikube-latest.x86_64.rpm
+            elif [[ "$DISTRO" == "Fedora" ]]; then
+                log_info "Installing minikube for Fedora..."
+                curl -LO https://storage.googleapis.com/minikube/releases/latest/minikube-latest.x86_64.rpm
+                sudo rpm -Uvh minikube-latest.x86_64.rpm
+                rm minikube-latest.x86_64.rpm
+            else
+                # Generic installation
+                log_info "Installing minikube (generic method)..."
+                curl -LO https://storage.googleapis.com/minikube/releases/latest/minikube-linux-amd64
+                sudo install minikube-linux-amd64 /usr/local/bin/minikube
+                rm minikube-linux-amd64
+            fi
+        fi
+        log_success "minikube installed successfully"
+        
+        # Start minikube if not running
+        log_info "Starting minikube..."
+        if [[ "$OSTYPE" == "darwin"* ]]; then
+            minikube start --driver=docker
+        else
+            # For Linux, check if we should use docker or podman
+            if command -v docker &> /dev/null && docker ps &> /dev/null; then
+                minikube start --driver=docker
+            elif command -v podman &> /dev/null; then
+                minikube start --driver=podman
+            else
+                # Fallback to VirtualBox or none driver
+                minikube start
+            fi
+        fi
+        log_success "minikube started successfully"
+    else
+        log_success "minikube is already installed"
+    fi
+    
+    # Verify Docker is running
+    if ! docker ps &> /dev/null; then
+        log_error "Docker is installed but not running. Please start Docker and try again."
+        if [[ "$OSTYPE" == "darwin"* ]]; then
+            log_info "On macOS, you can start Docker by running: open -a Docker"
+        elif [[ "$OSTYPE" == "linux-gnu"* ]]; then
+            log_info "On Linux, you can start Docker by running:"
+            log_info "  sudo systemctl start docker"
+            log_info "  sudo systemctl enable docker"
+            log_info "If you just installed Docker, you may need to:"
+            log_info "  1. Log out and back in (or run: newgrp docker)"
+            log_info "  2. Make sure your user is in the docker group: sudo usermod -aG docker \$USER"
+        fi
+        exit 1
+    fi
+    
+    # Additional check for Linux: ensure user is in docker group
+    if [[ "$OSTYPE" == "linux-gnu"* ]]; then
+        if ! groups | grep -q docker; then
+            log_warning "User not in docker group. Adding to docker group..."
+            sudo usermod -aG docker $USER
+            log_warning "Please log out and back in for group changes to take effect"
+            log_info "Or run: newgrp docker"
+        fi
+    fi
+    
+    log_success "All required software is installed and ready"
+    
+    # Show installed versions
+    log_info "Installed software versions:"
+    if [[ "$OSTYPE" == "darwin"* ]] && command -v brew &> /dev/null; then
+        echo "  Homebrew: $(brew --version | head -1)"
+    fi
+    echo "  Docker: $(docker --version)"
+    echo "  kubectl: $(kubectl version --client --short 2>/dev/null)"
+    echo "  Helm: $(helm version --short 2>/dev/null)"
+    echo "  minikube: $(minikube version --short 2>/dev/null)"
+}
+
 # Logging functions
 log_info() {
     echo -e "${BLUE}ℹ️  $1${NC}"
@@ -42,35 +299,54 @@ log_step() {
 
 # Function to check prerequisites
 check_prerequisites() {
-    log_step "Checking Prerequisites"
+    log_step "Verifying Prerequisites"
     
     # Check minikube
     if ! minikube status &>/dev/null; then
-        log_error "Minikube is not running. Please start minikube first with: minikube start"
-        exit 1
+        log_warning "Minikube is not running. Attempting to start..."
+        if minikube start --driver=docker; then
+            log_success "Minikube started successfully"
+        else
+            log_error "Failed to start minikube. Please check your Docker installation"
+            exit 1
+        fi
+    else
+        log_success "Minikube is running ($(minikube version --short))"
     fi
-    log_success "Minikube is running"
     
     # Check Docker
     if ! docker --version &>/dev/null; then
-        log_error "Docker is not available"
+        log_error "Docker is not available. Please ensure Docker is installed and running"
         exit 1
     fi
-    log_success "Docker is available"
+    DOCKER_VERSION=$(docker --version | cut -d' ' -f3 | sed 's/,//')
+    log_success "Docker is available (v$DOCKER_VERSION)"
+    
+    # Verify Docker is actually running
+    if ! docker ps &>/dev/null; then
+        log_error "Docker is installed but not running. Please start Docker and try again"
+        exit 1
+    fi
     
     # Check kubectl
     if ! kubectl config current-context &>/dev/null; then
-        log_error "kubectl is not configured"
+        log_error "kubectl is not configured or cannot connect to cluster"
         exit 1
     fi
-    log_success "kubectl is configured"
+    KUBECTL_VERSION=$(kubectl version --client --short | cut -d' ' -f3)
+    log_success "kubectl is configured ($KUBECTL_VERSION)"
     
     # Check Helm
     if ! helm version &>/dev/null; then
         log_error "Helm is not available"
         exit 1
     fi
-    log_success "Helm is available"
+    HELM_VERSION=$(helm version --short)
+    log_success "Helm is available ($HELM_VERSION)"
+    
+    # Check minikube IP accessibility
+    MINIKUBE_IP=$(minikube ip)
+    log_info "Minikube cluster IP: $MINIKUBE_IP"
 }
 
 # Function to build Docker images
@@ -395,6 +671,9 @@ main() {
     echo "🚀 Chat Application Kubernetes Deployment"
     echo "========================================="
     echo ""
+    
+    # Install required software if not present
+    install_software
     
     # Run all deployment phases
     check_prerequisites
