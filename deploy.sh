@@ -669,31 +669,45 @@ build_images() {
         eval $(minikube docker-env)
     fi
     
-    # Build server image
-    log_info "Building server image..."
-    cd server
-    if docker build -t myrepo/chat-server:latest . &>../build-server.log; then
-        log_success "Server image built successfully"
+    # Check if images already exist
+    SERVER_EXISTS=$(docker images -q myrepo/chat-server:latest 2>/dev/null)
+    CLIENT_EXISTS=$(docker images -q myrepo/chat-client:latest 2>/dev/null)
+    
+    # Build server image only if it doesn't exist
+    if [ -n "$SERVER_EXISTS" ]; then
+        log_success "Server image already exists, skipping build"
         log_info "Server image size: $(docker images myrepo/chat-server:latest --format "{{.Size}}" 2>/dev/null || echo "Unknown")"
     else
-        log_error "Server build failed! Check build-server.log"
-        cat ../build-server.log
-        exit 1
+        log_info "Building server image..."
+        cd server
+        if docker build -t myrepo/chat-server:latest . &>../build-server.log; then
+            log_success "Server image built successfully"
+            log_info "Server image size: $(docker images myrepo/chat-server:latest --format "{{.Size}}" 2>/dev/null || echo "Unknown")"
+        else
+            log_error "Server build failed! Check build-server.log"
+            cat ../build-server.log
+            exit 1
+        fi
+        cd ..
     fi
     
-    # Build client image
-    log_info "Building client image..."
-    cd ../client
-    if docker build -t myrepo/chat-client:latest . &>../build-client.log; then
-        log_success "Client image built successfully"
+    # Build client image only if it doesn't exist
+    if [ -n "$CLIENT_EXISTS" ]; then
+        log_success "Client image already exists, skipping build"
         log_info "Client image size: $(docker images myrepo/chat-client:latest --format "{{.Size}}" 2>/dev/null || echo "Unknown")"
     else
-        log_error "Client build failed! Check build-client.log"
-        cat ../build-client.log
-        exit 1
+        log_info "Building client image..."
+        cd client
+        if docker build -t myrepo/chat-client:latest . &>../build-client.log; then
+            log_success "Client image built successfully"
+            log_info "Client image size: $(docker images myrepo/chat-client:latest --format "{{.Size}}" 2>/dev/null || echo "Unknown")"
+        else
+            log_error "Client build failed! Check build-client.log"
+            cat ../build-client.log
+            exit 1
+        fi
+        cd ..
     fi
-    
-    cd ..
     
     # Load images into minikube (if not already using minikube's Docker daemon)
     if [[ "$CURRENT_DRIVER" == "docker" ]] && [[ "$USE_SUDO_DOCKER" != "true" ]]; then
@@ -709,7 +723,7 @@ build_images() {
             exit 1
         fi
     else
-        log_success "Images built directly in minikube's Docker daemon"
+        log_success "Images are ready in minikube's Docker daemon"
     fi
 }
 
@@ -814,16 +828,35 @@ configure_external_access() {
     
     if [ -n "$CLIENT_NODEPORT" ] && [ -n "$SERVER_NODEPORT" ]; then
         log_success "Service URLs configured:"
-        log_info "Client UI: http://$MINIKUBE_IP:$CLIENT_NODEPORT"
-        log_info "Server API: http://$MINIKUBE_IP:$SERVER_NODEPORT"
+        
+        # Show appropriate URLs based on platform and driver
+        local driver=$(minikube profile list 2>/dev/null | grep "minikube" | awk '{print $2}' || echo "unknown")
+        if [[ "$OSTYPE" == "darwin"* ]] && [[ "$driver" == "docker" ]]; then
+            log_info "Platform: macOS with Docker driver - URLs require minikube service tunnels"
+            log_info "Client UI (via tunnel): minikube service chat-app-client -n $NAMESPACE"
+            log_info "Server API (via tunnel): minikube service chat-app-server -n $NAMESPACE" 
+            log_info "Direct URLs (may not work): http://$MINIKUBE_IP:$CLIENT_NODEPORT, http://$MINIKUBE_IP:$SERVER_NODEPORT"
+        else
+            log_info "Client UI: http://$MINIKUBE_IP:$CLIENT_NODEPORT"
+            log_info "Server API: http://$MINIKUBE_IP:$SERVER_NODEPORT"
+        fi
         
         # Update deployment with correct API URL
         log_info "Updating API URL in deployment..."
+        
+        # Try to get the actual server URL for API configuration
+        SERVER_API_URL="http://$MINIKUBE_IP:$SERVER_NODEPORT"
+        if [[ "$OSTYPE" == "darwin"* ]] && [[ "$driver" == "docker" ]]; then
+            # For macOS Docker driver, we'll use a generic localhost URL that will be tunneled
+            SERVER_API_URL="http://localhost:$SERVER_NODEPORT"
+            log_info "Using localhost URL for API configuration (will work with minikube tunnel)"
+        fi
+        
         if helm upgrade $HELM_RELEASE $CHART_PATH \
             --namespace $NAMESPACE \
             --set server.service.type=NodePort \
             --set client.service.type=NodePort \
-            --set global.reactAppApiUrl="http://$MINIKUBE_IP:$SERVER_NODEPORT" \
+            --set global.reactAppApiUrl="$SERVER_API_URL" \
             --timeout 5m \
             --reuse-values; then
             log_success "API URL updated successfully"
@@ -907,11 +940,31 @@ show_final_status() {
     CLIENT_NODEPORT=$(kubectl get service chat-app-client -n chat-app -o jsonpath='{.spec.ports[0].nodePort}' 2>/dev/null || echo "N/A")
     SERVER_NODEPORT=$(kubectl get service chat-app-server -n chat-app -o jsonpath='{.spec.ports[0].nodePort}' 2>/dev/null || echo "N/A")
     
+    # Get minikube service URLs (works on all platforms)
+    log_info "Getting service URLs..."
+    CLIENT_URL=$(minikube service chat-app-client -n chat-app --url 2>/dev/null || echo "http://$MINIKUBE_IP:$CLIENT_NODEPORT")
+    SERVER_URL=$(minikube service chat-app-server -n chat-app --url 2>/dev/null || echo "http://$MINIKUBE_IP:$SERVER_NODEPORT")
+    
     echo "🎉 Chat Application Deployment Complete!"
     echo ""
     echo "📱 Access URLs:"
-    echo "   Client UI:  http://$MINIKUBE_IP:$CLIENT_NODEPORT"
-    echo "   Server API: http://$MINIKUBE_IP:$SERVER_NODEPORT"
+    local driver=$(minikube profile list 2>/dev/null | grep "minikube" | awk '{print $2}' || echo "unknown")
+    if [[ "$OSTYPE" == "darwin"* ]] && [[ "$driver" == "docker" ]]; then
+        echo "   ⚠️  Note: On macOS with Docker driver, use these URLs:"
+        echo "   Client UI:  $CLIENT_URL (minikube tunnel required)"
+        echo "   Server API: $SERVER_URL (minikube tunnel required)"
+        echo ""
+        echo "   Alternative direct URLs (may not work on macOS):"
+        echo "   Client UI:  http://$MINIKUBE_IP:$CLIENT_NODEPORT"
+        echo "   Server API: http://$MINIKUBE_IP:$SERVER_NODEPORT"
+    else
+        echo "   Client UI:  http://$MINIKUBE_IP:$CLIENT_NODEPORT"
+        echo "   Server API: http://$MINIKUBE_IP:$SERVER_NODEPORT"
+        echo ""
+        echo "   Minikube service URLs:"
+        echo "   Client UI:  $CLIENT_URL"
+        echo "   Server API: $SERVER_URL"
+    fi
     echo ""
     echo "🔧 Management Commands:"
     echo "   View pods:      kubectl get pods -n chat-app"
@@ -919,15 +972,27 @@ show_final_status() {
     echo "   Scale server:   kubectl scale deployment chat-app-server --replicas=5 -n chat-app"
     echo "   Uninstall:      helm uninstall chat-app -n chat-app"
     echo ""
+    echo "🌐 Access Commands:"
+    echo "   Open client:    minikube service chat-app-client -n chat-app"
+    echo "   Open server:    minikube service chat-app-server -n chat-app" 
+    echo "   Get URLs only:  minikube service chat-app-client -n chat-app --url"
+    echo ""
     
     # Quick status check
     echo "📊 Current Status:"
     kubectl get pods -n chat-app --no-headers | awk '{print "   " $1 ": " $3}' 
     echo ""
     
-    # Open browser suggestion
+    # Platform-specific browser suggestion
     if [ "$CLIENT_NODEPORT" != "N/A" ]; then
-        echo "🌐 Open in browser: http://$MINIKUBE_IP:$CLIENT_NODEPORT"
+        if [[ "$OSTYPE" == "darwin"* ]] && [[ "$(minikube config get driver)" == "docker" ]]; then
+            echo "🚀 To open in browser:"
+            echo "   Run: minikube service chat-app-client -n chat-app"
+            echo "   This will start a tunnel and open the browser automatically"
+        else
+            echo "🌐 Open in browser: http://$MINIKUBE_IP:$CLIENT_NODEPORT"
+            echo "   Or run: minikube service chat-app-client -n chat-app"
+        fi
     fi
 }
 

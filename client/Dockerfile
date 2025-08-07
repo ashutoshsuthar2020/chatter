@@ -1,5 +1,5 @@
 # Build stage
-FROM node:18-alpine as build
+FROM node:18-alpine AS build
 
 # Set working directory
 WORKDIR /app
@@ -16,8 +16,8 @@ COPY . .
 # Build the application
 RUN npm run build
 
-# Production stage
-FROM nginx:alpine
+# Production stage  
+FROM nginx:1.25-alpine
 
 # Create nginx configuration
 RUN echo 'server {' > /etc/nginx/conf.d/default.conf && \
