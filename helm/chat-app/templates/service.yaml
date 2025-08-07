@@ -1,0 +1,31 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "chat-app.server.fullname" . }}
+  labels:
+    {{- include "chat-app.server.labels" . | nindent 4 }}
+spec:
+  type: {{ .Values.server.service.type }}
+  ports:
+    - port: {{ .Values.server.service.port }}
+      targetPort: {{ .Values.server.service.targetPort }}
+      protocol: TCP
+      name: http
+  selector:
+    {{- include "chat-app.server.selectorLabels" . | nindent 4 }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "chat-app.client.fullname" . }}
+  labels:
+    {{- include "chat-app.client.labels" . | nindent 4 }}
+spec:
+  type: {{ .Values.client.service.type }}
+  ports:
+    - port: {{ .Values.client.service.port }}
+      targetPort: {{ .Values.client.service.targetPort }}
+      protocol: TCP
+      name: http
+  selector:
+    {{- include "chat-app.client.selectorLabels" . | nindent 4 }}

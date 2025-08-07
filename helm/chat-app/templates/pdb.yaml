@@ -1,0 +1,35 @@
+{{- if .Values.podDisruptionBudget.enabled }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "chat-app.server.fullname" . }}
+  labels:
+    {{- include "chat-app.server.labels" . | nindent 4 }}
+spec:
+{{- if .Values.podDisruptionBudget.minAvailable }}
+  minAvailable: {{ .Values.podDisruptionBudget.minAvailable }}
+{{- end }}
+{{- if .Values.podDisruptionBudget.maxUnavailable }}
+  maxUnavailable: {{ .Values.podDisruptionBudget.maxUnavailable }}
+{{- end }}
+  selector:
+    matchLabels:
+      {{- include "chat-app.server.selectorLabels" . | nindent 6 }}
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "chat-app.client.fullname" . }}
+  labels:
+    {{- include "chat-app.client.labels" . | nindent 4 }}
+spec:
+{{- if .Values.podDisruptionBudget.minAvailable }}
+  minAvailable: {{ .Values.podDisruptionBudget.minAvailable }}
+{{- end }}
+{{- if .Values.podDisruptionBudget.maxUnavailable }}
+  maxUnavailable: {{ .Values.podDisruptionBudget.maxUnavailable }}
+{{- end }}
+  selector:
+    matchLabels:
+      {{- include "chat-app.client.selectorLabels" . | nindent 6 }}
+{{- end }}

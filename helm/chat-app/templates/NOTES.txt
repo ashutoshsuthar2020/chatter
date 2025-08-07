@@ -1,0 +1,108 @@
+1. Get the application URL by running these commands:
+{{- if .Values.ingress.enabled }}
+{{- range $host := .Values.ingress.hosts }}
+  {{- range .paths }}
+  http{{ if $.Values.ingress.tls }}s{{ end }}://{{ $host.host }}{{ .path }}
+  {{- end }}
+{{- end }}
+{{- else if contains "NodePort" .Values.client.service.type }}
+  export NODE_PORT=$(kubectl get --namespace {{ .Release.Namespace }} -o jsonpath="{.spec.ports[0].nodePort}" services {{ include "chat-app.client.fullname" . }})
+  export NODE_IP=$(kubectl get nodes --namespace {{ .Release.Namespace }} -o jsonpath="{.items[0].status.addresses[0].address}")
+  echo http://$NODE_IP:$NODE_PORT
+{{- else if contains "LoadBalancer" .Values.client.service.type }}
+     NOTE: It may take a few minutes for the LoadBalancer IP to be available.
+           You can watch the status of by running 'kubectl get --namespace {{ .Release.Namespace }} svc -w {{ include "chat-app.client.fullname" . }}'
+  export SERVICE_IP=$(kubectl get svc --namespace {{ .Release.Namespace }} {{ include "chat-app.client.fullname" . }} --template "{{"{{ range (index .status.loadBalancer.ingress 0) }}{{.}}{{ end }}"}}")
+  echo http://$SERVICE_IP:{{ .Values.client.service.port }}
+{{- else if contains "ClusterIP" .Values.client.service.type }}
+  export POD_NAME=$(kubectl get pods --namespace {{ .Release.Namespace }} -l "{{ include "chat-app.client.selectorLabels" . | replace "\n" "," }}" -o jsonpath="{.items[0].metadata.name}")
+  export CONTAINER_PORT=$(kubectl get pod --namespace {{ .Release.Namespace }} $POD_NAME -o jsonpath="{.spec.containers[0].ports[0].containerPort}")
+  echo "Visit http://127.0.0.1:8080 to use your application"
+  kubectl --namespace {{ .Release.Namespace }} port-forward $POD_NAME 8080:$CONTAINER_PORT
+{{- end }}
+
+2. To check the status of your deployment:
+   kubectl get pods -l "app.kubernetes.io/instance={{ .Release.Name }}" -n {{ .Release.Namespace }}
+
+3. To view application logs:
+   # Server logs
+   kubectl logs -l "{{ include "chat-app.server.selectorLabels" . | replace "\n" "," }}" -n {{ .Release.Namespace }} -f
+   
+   # Client logs
+   kubectl logs -l "{{ include "chat-app.client.selectorLabels" . | replace "\n" "," }}" -n {{ .Release.Namespace }} -f
+
+4. To scale your application:
+   {{- if .Values.server.autoscaling.enabled }}
+   # Autoscaling is enabled for server ({{ .Values.server.autoscaling.minReplicas }}-{{ .Values.server.autoscaling.maxReplicas }} replicas)
+   {{- else }}
+   # Scale server manually
+   kubectl scale deployment {{ include "chat-app.server.fullname" . }} --replicas=<desired-replicas> -n {{ .Release.Namespace }}
+   {{- end }}
+   
+   {{- if .Values.client.autoscaling.enabled }}
+   # Autoscaling is enabled for client ({{ .Values.client.autoscaling.minReplicas }}-{{ .Values.client.autoscaling.maxReplicas }} replicas)
+   {{- else }}
+   # Scale client manually
+   kubectl scale deployment {{ include "chat-app.client.fullname" . }} --replicas=<desired-replicas> -n {{ .Release.Namespace }}
+   {{- end }}
+
+5. Database connections:
+   {{- if .Values.redis.enabled }}
+   # Redis is deployed as part of this release
+   Redis Host: {{ include "chat-app.redis.host" . }}
+   Redis Port: {{ include "chat-app.redis.port" . }}
+   {{- else }}
+   # Using external Redis
+   Redis Host: {{ .Values.externalRedis.host }}
+   Redis Port: {{ .Values.externalRedis.port }}
+   {{- end }}
+   
+   {{- if .Values.mongodb.enabled }}
+   # MongoDB is deployed as part of this release
+   MongoDB Host: {{ include "chat-app.mongodb.host" . }}
+   MongoDB Port: {{ include "chat-app.mongodb.port" . }}
+   MongoDB Database: {{ include "chat-app.mongodb.database" . }}
+   {{- else }}
+   # Using external MongoDB
+   MongoDB Host: {{ .Values.externalMongodb.host }}
+   MongoDB Port: {{ .Values.externalMongodb.port }}
+   MongoDB Database: {{ .Values.externalMongodb.database }}
+   {{- end }}
+
+6. Monitoring and Health Checks:
+   # Check health status
+   kubectl get pods -l "app.kubernetes.io/instance={{ .Release.Name }}" -n {{ .Release.Namespace }}
+   
+   # View HPA status (if enabled)
+   {{- if or .Values.server.autoscaling.enabled .Values.client.autoscaling.enabled }}
+   kubectl get hpa -l "app.kubernetes.io/instance={{ .Release.Name }}" -n {{ .Release.Namespace }}
+   {{- end }}
+
+7. Troubleshooting:
+   # Describe pods for issues
+   kubectl describe pods -l "app.kubernetes.io/instance={{ .Release.Name }}" -n {{ .Release.Namespace }}
+   
+   # Check events
+   kubectl get events --sort-by=.metadata.creationTimestamp -n {{ .Release.Namespace }}
+   
+   # Check service endpoints
+   kubectl get endpoints -l "app.kubernetes.io/instance={{ .Release.Name }}" -n {{ .Release.Namespace }}
+
+8. Configuration Updates:
+   # Update configuration
+   helm upgrade {{ .Release.Name }} ./helm/chat-app -n {{ .Release.Namespace }} --values <your-values.yaml>
+   
+   # Rollback if needed
+   helm rollback {{ .Release.Name }} -n {{ .Release.Namespace }}
+
+{{- if .Values.ingress.enabled }}
+NOTE: Make sure your ingress controller is properly configured and running.
+{{- end }}
+
+{{- if or .Values.redis.enabled .Values.mongodb.enabled }}
+NOTE: Database persistence is enabled. Your data will be preserved across pod restarts.
+{{- end }}
+
+{{- if .Values.networkPolicy.enabled }}
+NOTE: Network policies are enabled. Only allowed traffic will reach your pods.
+{{- end }}

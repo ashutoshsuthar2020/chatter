@@ -1,0 +1,103 @@
+{{- if .Values.networkPolicy.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "chat-app.fullname" . }}
+  labels:
+    {{- include "chat-app.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "chat-app.selectorLabels" . | nindent 6 }}
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # Allow ingress from ingress controller
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              name: {{ .Values.networkPolicy.ingressNamespace | default "ingress-nginx" }}
+      ports:
+        - protocol: TCP
+          port: {{ .Values.client.service.port }}
+    # Allow communication between server and client
+    - from:
+        - podSelector:
+            matchLabels:
+              {{- include "chat-app.selectorLabels" . | nindent 14 }}
+      ports:
+        - protocol: TCP
+          port: {{ .Values.server.service.port }}
+        - protocol: TCP
+          port: {{ .Values.client.service.port }}
+    # Allow health checks from Kubernetes
+    - from: []
+      ports:
+        - protocol: TCP
+          port: {{ .Values.server.service.port }}
+        - protocol: TCP
+          port: {{ .Values.client.service.port }}
+  egress:
+    # Allow DNS resolution
+    - to: []
+      ports:
+        - protocol: UDP
+          port: 53
+    # Allow communication to Redis
+    {{- if .Values.redis.enabled }}
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: redis
+              app.kubernetes.io/instance: {{ .Release.Name }}
+      ports:
+        - protocol: TCP
+          port: {{ include "chat-app.redis.port" . }}
+    {{- else }}
+    - to: []
+      ports:
+        - protocol: TCP
+          port: {{ include "chat-app.redis.port" . }}
+    {{- end }}
+    # Allow communication to MongoDB
+    {{- if .Values.mongodb.enabled }}
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: mongodb
+              app.kubernetes.io/instance: {{ .Release.Name }}
+      ports:
+        - protocol: TCP
+          port: {{ include "chat-app.mongodb.port" . }}
+    {{- else }}
+    - to: []
+      ports:
+        - protocol: TCP
+          port: {{ include "chat-app.mongodb.port" . }}
+    {{- end }}
+    # Allow communication between server and client
+    - to:
+        - podSelector:
+            matchLabels:
+              {{- include "chat-app.selectorLabels" . | nindent 14 }}
+      ports:
+        - protocol: TCP
+          port: {{ .Values.server.service.port }}
+        - protocol: TCP
+          port: {{ .Values.client.service.port }}
+    # Allow HTTPS outbound (for external APIs if needed)
+    {{- if .Values.networkPolicy.allowExternalHttps }}
+    - to: []
+      ports:
+        - protocol: TCP
+          port: 443
+    {{- end }}
+    # Allow HTTP outbound (for external APIs if needed)
+    {{- if .Values.networkPolicy.allowExternalHttp }}
+    - to: []
+      ports:
+        - protocol: TCP
+          port: 80
+    {{- end }}
+{{- end }}

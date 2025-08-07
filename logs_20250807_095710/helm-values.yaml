@@ -1,0 +1,15 @@
+USER-SUPPLIED VALUES:
+client:
+  image:
+    repository: myrepo/chat-client
+    tag: latest
+  service:
+    type: NodePort
+global:
+  reactAppApiUrl: http://192.168.49.2:32522
+server:
+  image:
+    repository: myrepo/chat-server
+    tag: latest
+  service:
+    type: NodePort
