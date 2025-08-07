@@ -341,6 +341,7 @@ install_software() {
             elif command -v podman &> /dev/null; then
                 log_info "Setting Podman as driver (Docker not available)..."
                 minikube config set driver podman
+            fi
         fi
         
         # Start minikube if not running
