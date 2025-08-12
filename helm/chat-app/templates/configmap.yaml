@@ -7,7 +7,7 @@ metadata:
 data:
   # Application configuration
   APP_NAME: {{ .Values.global.appName | quote }}
-  NODE_ENV: "production"
+  NODE_ENV: "development"  # Changed to development for better CORS handling
   
   # Redis configuration
   REDIS_HOST: {{ include "chat-app.redis.host" . | quote }}
@@ -15,10 +15,7 @@ data:
   REDIS_URL: {{ printf "redis://%s:%s" (include "chat-app.redis.host" .) (include "chat-app.redis.port" .) | quote }}
   
   # MongoDB configuration
-  MONGODB_HOST: {{ include "chat-app.mongodb.host" . | quote }}
-  MONGODB_PORT: {{ include "chat-app.mongodb.port" . | quote }}
-  MONGODB_DATABASE: {{ include "chat-app.mongodb.database" . | quote }}
-  MONGODB_URI: {{ include "chat-app.mongodb.uri" . | quote }}
+  MONGODB_URI: {{ .Values.externalMongodb.uri | quote }}
   
   # Server configuration
   SERVER_PORT: {{ .Values.server.service.port | quote }}
@@ -26,16 +23,6 @@ data:
   # Client configuration
   CLIENT_PORT: {{ .Values.client.service.port | quote }}
   REACT_APP_API_URL: {{ .Values.global.reactAppApiUrl | default (printf "http://%s:%d" (include "chat-app.server.fullname" .) (.Values.server.service.port | int)) | quote }}
-  
-  # Firebase configuration (if enabled)
-  {{- if .Values.firebase.enabled }}
-  FIREBASE_PROJECT_ID: {{ .Values.firebase.projectId | quote }}
-  FIREBASE_API_KEY: {{ .Values.firebase.apiKey | quote }}
-  FIREBASE_AUTH_DOMAIN: {{ .Values.firebase.authDomain | quote }}
-  FIREBASE_STORAGE_BUCKET: {{ .Values.firebase.storageBucket | quote }}
-  FIREBASE_MESSAGING_SENDER_ID: {{ .Values.firebase.messagingSenderId | quote }}
-  FIREBASE_APP_ID: {{ .Values.firebase.appId | quote }}
-  {{- end }}
   
   # Additional environment variables
   {{- range $key, $value := .Values.global.extraEnvVars }}

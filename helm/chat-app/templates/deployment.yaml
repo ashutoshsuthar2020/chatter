@@ -67,12 +67,8 @@ spec:
               value: {{ include "chat-app.redis.host" . | quote }}
             - name: REDIS_PORT
               value: {{ include "chat-app.redis.port" . | quote }}
-            - name: MONGODB_HOST
-              value: {{ include "chat-app.mongodb.host" . | quote }}
-            - name: MONGODB_PORT
-              value: {{ include "chat-app.mongodb.port" . | quote }}
-            - name: MONGODB_DATABASE
-              value: {{ include "chat-app.mongodb.database" . | quote }}
+            - name: MONGODB_URI
+              value: {{ .Values.externalMongodb.uri | quote }}
           resources:
             {{- toYaml .Values.server.resources | nindent 12 }}
       {{- with .Values.server.nodeSelector }}

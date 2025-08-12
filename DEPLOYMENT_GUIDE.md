@@ -74,30 +74,6 @@ brew install minikube
 minikube start --memory 4096 --cpus 2
 ```
 
-**kind**:
-```bash
-brew install kind
-kind create cluster --config - <<EOF
-kind: Cluster
-apiVersion: kind.x-k8s.io/v1alpha4
-nodes:
-- role: control-plane
-  kubeadmConfigPatches:
-  - |
-    kind: InitConfiguration
-    nodeRegistration:
-      kubeletExtraArgs:
-        node-labels: "ingress-ready=true"
-  extraPortMappings:
-  - containerPort: 80
-    hostPort: 80
-    protocol: TCP
-  - containerPort: 443
-    hostPort: 443
-    protocol: TCP
-EOF
-```
-
 ### 2. Deploy the Application
 
 ```bash
@@ -110,12 +86,12 @@ helm install chat-app . -n chat-app \
   --set redis.enabled=true \
   --set mongodb.enabled=true
 
-# Or deploy with external databases
+# for external redis and mongo
 helm install chat-app . -n chat-app \
   --set redis.enabled=false \
   --set mongodb.enabled=false \
   --set externalRedis.host=your-redis-host \
-  --set externalMongodb.host=your-mongo-host
+  --set externalMongodb.uri="mongodb+srv://<username>:<password>@<cluster-url>/chatter?retryWrites=true&w=majority"
 ```
 
 ### 3. Verify Deployment
@@ -132,110 +108,6 @@ kubectl get ingress -n chat-app
 
 # Check HPA
 kubectl get hpa -n chat-app
-```
-
-## 📊 Production Deployment
-
-### 1. Custom Values File
-
-Create `production-values.yaml`:
-
-```yaml
-# Production configuration
-global:
-  imageRegistry: "your-registry.com"
-  
-server:
-  replicaCount: 5
-  image:
-    tag: "v1.0.0"
-    pullPolicy: "IfNotPresent"
-  autoscaling:
-    enabled: true
-    minReplicas: 5
-    maxReplicas: 50
-  resources:
-    requests:
-      cpu: 200m
-      memory: 256Mi
-    limits:
-      cpu: 500m
-      memory: 512Mi
-
-client:
-  replicaCount: 3
-  image:
-    tag: "v1.0.0"
-    pullPolicy: "IfNotPresent"
-  autoscaling:
-    enabled: true
-    minReplicas: 3
-    maxReplicas: 20
-
-ingress:
-  enabled: true
-  className: "nginx"
-  hosts:
-    - host: "chat.yourdomain.com"
-      paths:
-        - path: /api
-          pathType: Prefix
-          backend:
-            service:
-              name: server
-              port: 8000
-        - path: /socket.io
-          pathType: Prefix
-          backend:
-            service:
-              name: server
-              port: 8000
-        - path: /
-          pathType: Prefix
-          backend:
-            service:
-              name: client
-              port: 80
-  tls:
-    - secretName: "chat-app-tls"
-      hosts:
-        - "chat.yourdomain.com"
-
-# External databases for production
-redis:
-  enabled: false
-mongodb:
-  enabled: false
-
-externalRedis:
-  host: "redis.yourdomain.com"
-  port: 6379
-  password: "your-redis-password"
-
-externalMongodb:
-  host: "mongodb.yourdomain.com"
-  port: 27017
-  username: "chatapp"
-  password: "your-mongodb-password"
-  database: "chatter"
-
-# Security
-security:
-  jwtSecret: "your-jwt-secret"
-  sessionSecret: "your-session-secret"
-
-networkPolicy:
-  enabled: true
-
-podDisruptionBudget:
-  enabled: true
-  minAvailable: 2
-```
-
-### 2. Deploy with Production Values
-
-```bash
-helm install chat-app ./helm/chat-app -n chat-app -f production-values.yaml
 ```
 
 ## 🔍 Monitoring & Troubleshooting

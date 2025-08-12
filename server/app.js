@@ -16,47 +16,60 @@ const app = express();
 // Configure CORS with dynamic origins for development
 const corsOptions = {
     origin: function (origin, callback) {
-        // Allow requests with no origin (mobile apps, etc.)
-        if (!origin) return callback(null, true);
-        
-        // Define allowed origins with patterns
+        console.log('CORS check for origin:', origin);
+
+        // Allow requests with no origin (mobile apps, Postman, etc.)
+        if (!origin) {
+            console.log('CORS: Allowing request with no origin');
+            return callback(null, true);
+        }
+
+        const isDevelopment = process.env.NODE_ENV !== 'production';
+
+        if (isDevelopment) {
+            // Allow localhost and LAN IPs in dev
+            const devPatterns = [
+                /^https?:\/\/localhost(:\d+)?$/,
+                /^https?:\/\/127\.0\.0\.1(:\d+)?$/,
+                /^https?:\/\/0\.0\.0\.0(:\d+)?$/,
+                /^https?:\/\/192\.168\.\d+\.\d+(:\d+)?$/,
+                /^https?:\/\/10\.\d+\.\d+\.\d+(:\d+)?$/,
+                /^https?:\/\/172\.1[6-9]\.\d+\.\d+(:\d+)?$/,
+                /^https?:\/\/172\.2[0-9]\.\d+\.\d+(:\d+)?$/,
+                /^https?:\/\/172\.3[0-1]\.\d+\.\d+(:\d+)?$/
+            ];
+
+            if (devPatterns.some(pattern => pattern.test(origin))) {
+                console.log('CORS: Allowing development origin:', origin);
+                return callback(null, true);
+            }
+        }
+
+        // Production or specific origins whitelist
         const allowedOrigins = [
-            // Standard localhost patterns
-            /^https?:\/\/localhost(:\d+)?$/,
-            /^https?:\/\/127\.0\.0\.1(:\d+)?$/,
-            /^https?:\/\/0\.0\.0\.0(:\d+)?$/,
-            // Minikube and tunnel patterns
-            /^https?:\/\/192\.168\.\d+\.\d+(:\d+)?$/,
-            /^https?:\/\/10\.\d+\.\d+\.\d+(:\d+)?$/,
-            // Specific known origins
             'http://localhost:3000',
-            'http://localhost:3001', 
-            'http://localhost:3006',
-            'http://localhost:3007',
             'http://127.0.0.1:3000',
             'http://0.0.0.0:3000'
         ];
-        
-        // Check if origin matches any pattern
-        const isAllowed = allowedOrigins.some(pattern => {
-            if (typeof pattern === 'string') {
-                return origin === pattern;
-            } else if (pattern instanceof RegExp) {
-                return pattern.test(origin);
-            }
-            return false;
-        });
-        
-        if (isAllowed) {
-            callback(null, true);
-        } else {
-            console.log('CORS blocked origin:', origin);
-            callback(new Error('Not allowed by CORS'));
+
+        if (allowedOrigins.includes(origin)) {
+            console.log('CORS: Allowing specific origin:', origin);
+            return callback(null, true);
         }
+
+        // If origin not allowed and in development, allow anyway but log it
+        if (isDevelopment) {
+            console.log('CORS: Development mode - allowing blocked origin anyway:', origin);
+            return callback(null, true);
+        }
+
+        // Otherwise block it
+        console.log('CORS: BLOCKING origin:', origin);
+        return callback(new Error('Not allowed by CORS'));
     },
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With']
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'Accept-Language']
 };
 
 app.use(cors(corsOptions));
@@ -71,8 +84,8 @@ app.use((req, res, next) => {
 
 // Health check endpoint
 app.get('/health', (req, res) => {
-    res.status(200).json({ 
-        status: 'OK', 
+    res.status(200).json({
+        status: 'OK',
         timestamp: new Date().toISOString(),
         origin: req.headers.origin || 'none'
     });
@@ -80,7 +93,7 @@ app.get('/health', (req, res) => {
 
 // CORS test endpoint
 app.get('/cors-test', (req, res) => {
-    res.status(200).json({ 
+    res.status(200).json({
         message: 'CORS is working',
         origin: req.headers.origin || 'none',
         timestamp: new Date().toISOString()
@@ -90,45 +103,40 @@ app.get('/cors-test', (req, res) => {
 // Create HTTP server and attach Socket.IO to the same port
 const server = require('http').createServer(app);
 const io = require('socket.io')(server, {
-    cors: {
-        origin: function (origin, callback) {
-            // Allow requests with no origin (mobile apps, etc.)
-            if (!origin) return callback(null, true);
-            
-            // Define allowed origins with patterns (same as HTTP CORS)
-            const allowedOrigins = [
-                // Standard localhost patterns
-                /^https?:\/\/localhost(:\d+)?$/,
-                /^https?:\/\/127\.0\.0\.1(:\d+)?$/,
-                /^https?:\/\/0\.0\.0\.0(:\d+)?$/,
-                // Minikube and tunnel patterns
-                /^https?:\/\/192\.168\.\d+\.\d+(:\d+)?$/,
-                /^https?:\/\/10\.\d+\.\d+\.\d+(:\d+)?$/,
-                // Specific known origins
-                'http://localhost:3000',
-                'http://localhost:3001', 
-                'http://localhost:3006',
-                'http://localhost:3007',
-                'http://127.0.0.1:3000',
-                'http://0.0.0.0:3000'
-            ];
-            
-            // Check if origin matches any pattern
-            const isAllowed = allowedOrigins.some(pattern => {
-                if (typeof pattern === 'string') {
-                    return origin === pattern;
-                } else if (pattern instanceof RegExp) {
-                    return pattern.test(origin);
-                }
-                return false;
-            });
-            
-            callback(null, isAllowed);
-        },
-        methods: ['GET', 'POST'],
-        credentials: true
-    }
-})
+  cors: {
+    origin: function (origin, callback) {
+      console.log('Socket.IO CORS check for origin:', origin);
+
+      if (!origin) {
+        console.log('Socket.IO CORS: Allowing request with no origin');
+        return callback(null, true);
+      }
+
+      const isDevelopment = process.env.NODE_ENV !== 'production';
+      console.log('Socket.IO CORS: Development mode:', isDevelopment);
+      const allowedOrigins = [
+        'http://localhost:3000',
+        'http://127.0.0.1:3000',
+        'http://0.0.0.0:3000'
+      ];
+
+      if (isDevelopment) {
+        console.log('Socket.IO CORS: Development mode - allowing origin:', origin);
+        return callback(null, true);
+      }
+
+      if (allowedOrigins.includes(origin)) {
+        console.log('Socket.IO CORS: Allowing production origin:', origin);
+        return callback(null, true);
+      }
+
+      console.log('Socket.IO CORS: BLOCKING origin in production:', origin);
+      return callback(new Error('Not allowed by CORS'));
+    },
+    methods: ['GET', 'POST'],
+    credentials: true
+  }
+});
 
 // Initialize message delivery service
 const messageDeliveryService = new MessageDeliveryService(io);

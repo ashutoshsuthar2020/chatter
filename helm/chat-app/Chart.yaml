@@ -15,8 +15,7 @@ home: https://github.com/yourorg/chatter
 sources:
   - https://github.com/yourorg/chatter
 maintainers:
-  - name: Your Name
-    email: your.email@example.com
+  - name: ashutosh suthar
 dependencies:
   - name: redis
     version: "^18.0.0"

@@ -46,7 +46,7 @@ server:
   autoscaling:
     enabled: true
     minReplicas: 3
-    maxReplicas: 20
+    maxReplicas: 5
     targetCPUUtilizationPercentage: 70
     targetMemoryUtilizationPercentage: 80
   
@@ -67,7 +67,7 @@ server:
   
   # Environment variables
   env:
-    NODE_ENV: "production"
+    NODE_ENV: "development"  # Changed to development for better CORS handling
     PORT: "8000"
     SYNC_INTERVAL_MINUTES: "5"
   
@@ -112,7 +112,7 @@ client:
   autoscaling:
     enabled: true
     minReplicas: 2
-    maxReplicas: 10
+    maxReplicas: 5
     targetCPUUtilizationPercentage: 70
   
   # Health checks
@@ -132,7 +132,7 @@ client:
   
   # Environment variables
   env:
-    NODE_ENV: "production"
+    NODE_ENV: "development"  # Changed to development for better CORS handling
   
   # Security context
   securityContext:
@@ -167,6 +167,12 @@ ingress:
             service:
               name: server  
               port: 8000
+        - path: /health
+          pathType: Prefix
+          backend:
+            service:
+              name: server
+              port: 8000
         - path: /
           pathType: Prefix
           backend:
@@ -183,7 +189,7 @@ redis:
   enabled: false  # Set to true if you want to install Redis as part of this chart
   architecture: standalone
   auth:
-    enabled: true
+    enabled: false
     password: "redis-password"
   master:
     service:
@@ -202,17 +208,6 @@ externalRedis:
     enabled: true
     existingSecret: "redis-secret"
     existingSecretPasswordKey: "redis-password"
-
-# Firebase configuration (optional)
-firebase:
-  enabled: false
-  projectId: ""
-  apiKey: ""
-  authDomain: ""
-  storageBucket: ""
-  messagingSenderId: ""
-  appId: ""
-  serviceAccountKey: ""
 
 # Security configuration
 security:
@@ -253,16 +248,13 @@ mongodb:
   
 # External MongoDB configuration (for existing MongoDB installation)
 externalMongodb:
-  host: "mongodb"
-  port: 27017
-  database: "chatter"
-  username: "chatapp"
-  password: "chatapp-password"
+  uri: "mongodb+srv://ashu:Drowssap@123@cluster0.ne01a8v.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0"
   auth:
     enabled: true
-    existingSecret: "mongodb-secret"
-    existingSecretUsernameKey: "mongodb-username"
-    existingSecretPasswordKey: "mongodb-password"
+    # Optionally use Kubernetes secrets for username/password if you prefer
+    # existingSecret: "mongodb-secret"
+    # existingSecretUsernameKey: "mongodb-username"
+    # existingSecretPasswordKey: "mongodb-password"
 
 # ServiceAccount configuration
 serviceAccount:
