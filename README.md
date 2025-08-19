@@ -316,6 +316,51 @@ npm run eject      # Eject from Create React App
 - `GET /health` - Health check endpoint
 - `GET /api/redis/status` - Redis connection status (if implemented)
 
+---
+
+## 🔒 Enabling TLS/HTTPS (Production)
+
+Chatter supports secure HTTPS and WSS (WebSocket Secure) for production deployments. To enable TLS:
+
+1. **Obtain TLS Certificates**
+   - Use a trusted CA or generate self-signed certs for testing.
+   - Store certs as Kubernetes secrets (recommended) or use cert-manager for automatic provisioning.
+
+2. **Helm Ingress TLS Configuration**
+   - Edit your `helm/client/templates/ingress.yaml` and `helm/server/templates/ingress.yaml` to add a `tls:` block referencing your secret:
+     ```yaml
+     tls:
+       - hosts:
+           - your.domain.com
+         secretName: chatter-tls
+     ```
+   - Update `values.yaml` to allow enabling/disabling TLS and setting secret name.
+
+3. **Node.js Server HTTPS Support**
+   - Update `server/app.js` to support HTTPS by reading cert/key from files or environment variables:
+     ```js
+     const fs = require('fs');
+     const httpsOptions = {
+       key: fs.readFileSync(process.env.TLS_KEY_PATH),
+       cert: fs.readFileSync(process.env.TLS_CERT_PATH)
+     };
+     const server = require('https').createServer(httpsOptions, app);
+     ```
+   - Mount certs into the server container via Kubernetes secret.
+
+4. **Client Configuration**
+   - Set `REACT_APP_API_URL` and `REACT_APP_WS_URL` to `https://` and `wss://` URLs in `.env` before building:
+     ```env
+     REACT_APP_API_URL=https://your.domain.com
+     REACT_APP_WS_URL=wss://your.domain.com
+     ```
+
+5. **Rebuild and Redeploy**
+   - Always rebuild the client after changing `.env`.
+   - Deploy updated images and Helm charts.
+
+---
+
 ## 🐛 Enterprise Troubleshooting
 
 ### Common Issues

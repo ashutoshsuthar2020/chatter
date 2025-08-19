@@ -82,60 +82,43 @@ app.use((req, res, next) => {
     next();
 });
 
-// Health check endpoint
-app.get('/health', (req, res) => {
-    res.status(200).json({
-        status: 'OK',
-        timestamp: new Date().toISOString(),
-        origin: req.headers.origin || 'none'
-    });
-});
 
-// CORS test endpoint
-app.get('/cors-test', (req, res) => {
-    res.status(200).json({
-        message: 'CORS is working',
-        origin: req.headers.origin || 'none',
-        timestamp: new Date().toISOString()
-    });
-});
 
 // Create HTTP server and attach Socket.IO to the same port
 const server = require('http').createServer(app);
 const io = require('socket.io')(server, {
-  cors: {
-    origin: function (origin, callback) {
-      console.log('Socket.IO CORS check for origin:', origin);
+    cors: {
+        origin: function (origin, callback) {
+            console.log('Socket.IO CORS check for origin:', origin);
 
-      if (!origin) {
-        console.log('Socket.IO CORS: Allowing request with no origin');
-        return callback(null, true);
-      }
+            if (!origin) {
+                console.log('Socket.IO CORS: Allowing request with no origin');
+                return callback(null, true);
+            }
 
-      const isDevelopment = process.env.NODE_ENV !== 'production';
-      console.log('Socket.IO CORS: Development mode:', isDevelopment);
-      const allowedOrigins = [
-        'http://localhost:3000',
-        'http://127.0.0.1:3000',
-        'http://0.0.0.0:3000'
-      ];
+            const isDevelopment = process.env.NODE_ENV !== 'production';
+            const allowedOrigins = [
+                'http://localhost:3000',
+                'http://127.0.0.1:3000',
+                'http://0.0.0.0:3000'
+            ];
 
-      if (isDevelopment) {
-        console.log('Socket.IO CORS: Development mode - allowing origin:', origin);
-        return callback(null, true);
-      }
+            if (isDevelopment) {
+                console.log('Socket.IO CORS: Development mode - allowing origin:', origin);
+                return callback(null, true);
+            }
 
-      if (allowedOrigins.includes(origin)) {
-        console.log('Socket.IO CORS: Allowing production origin:', origin);
-        return callback(null, true);
-      }
+            if (allowedOrigins.includes(origin)) {
+                console.log('Socket.IO CORS: Allowing production origin:', origin);
+                return callback(null, true);
+            }
 
-      console.log('Socket.IO CORS: BLOCKING origin in production:', origin);
-      return callback(new Error('Not allowed by CORS'));
-    },
-    methods: ['GET', 'POST'],
-    credentials: true
-  }
+            console.log('Socket.IO CORS: BLOCKING origin in production:', origin);
+            return callback(new Error('Not allowed by CORS'));
+        },
+        methods: ['GET', 'POST'],
+        credentials: true
+    }
 });
 
 // Initialize message delivery service
@@ -501,14 +484,6 @@ app.get('/', (req, res) => {
     res.send('Hello');
 })
 
-// Health check endpoint for Kubernetes
-app.get('/health', (req, res) => {
-    res.status(200).json({
-        status: 'healthy',
-        timestamp: new Date().toISOString(),
-        uptime: process.uptime()
-    });
-})
 
 
 
@@ -1989,7 +1964,7 @@ app.get('/api/sync/config', (req, res) => {
     });
 });
 
-server.listen(PORT, async () => {
+server.listen(PORT, '0.0.0.0', async () => {
     console.log("HTTP and Socket.IO server listening on port : " + PORT);
 
     // Initialize Redis service for horizontal scaling

@@ -1,0 +1,7 @@
+client:
+  image:
+    repository: ashu001/client
+    tag: latest
+    pullPolicy: IfNotPresent
+  port: 3000
+  ingressDomain: "server.example.com"

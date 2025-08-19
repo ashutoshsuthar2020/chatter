@@ -1,0 +1,23 @@
+# MongoDB and Redis subcharts
+redis:
+  enabled: true
+  architecture: standalone
+  auth:
+    enabled: false
+
+# mongodb:
+#   enabled: true
+#   architecture: standalone
+#   auth:
+#     enabled: false
+
+server:
+  image:
+    repository: ashu001/server
+    tag: latest
+    pullPolicy: IfNotPresent
+  port: 8000
+  # If you want to override the MongoDB URI, set it here
+  mongodbUri: ""
+  # If you want to override the Redis URL, set it here
+  redisUrl: ""

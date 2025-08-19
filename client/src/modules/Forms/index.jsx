@@ -29,7 +29,7 @@ const Form = ({
                     setIsLoading(false);
                     return;
                 }
-
+                console.log('API URL:', `${config.API_URL}/api/login`);
                 const res = await fetch(`${config.API_URL}/api/login`, {
                     method: 'POST',
                     headers: {
@@ -56,7 +56,6 @@ const Form = ({
                     setIsLoading(false);
                     return;
                 }
-                console.log('API URL:', `${config.API_URL}/api/register`);
                 const res = await fetch(`${config.API_URL}/api/register`, {
                     method: 'POST',
                     headers: {

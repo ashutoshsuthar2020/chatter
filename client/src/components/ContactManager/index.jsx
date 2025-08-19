@@ -1,6 +1,8 @@
+
 import React, { useState } from 'react';
 import Button from '../Button';
 import Input from '../Input';
+import config from '../../config';
 
 const ContactManager = ({ user, onContactAdded, onContactRemoved, onChatDeleted }) => {
     const [newContactPhoneNumber, setNewContactPhoneNumber] = useState('');
@@ -17,7 +19,7 @@ const ContactManager = ({ user, onContactAdded, onContactRemoved, onChatDeleted 
         setSuccess('');
 
         try {
-            const res = await fetch(`${process.env.REACT_APP_API_URL || 'http://localhost:8000'}/api/contacts`, {
+            const res = await fetch(`${config.API_URL}/api/contacts`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
@@ -49,7 +51,7 @@ const ContactManager = ({ user, onContactAdded, onContactRemoved, onChatDeleted 
         if (!window.confirm('Are you sure you want to remove this contact?')) return;
 
         try {
-            const res = await fetch(`${process.env.REACT_APP_API_URL || 'http://localhost:8000'}/api/contacts/${contactId}`, {
+            const res = await fetch(`${config.API_URL}/api/contacts/${contactId}`, {
                 method: 'DELETE',
                 headers: {
                     'Content-Type': 'application/json',
@@ -76,7 +78,7 @@ const ContactManager = ({ user, onContactAdded, onContactRemoved, onChatDeleted 
         if (!window.confirm('Are you sure you want to delete this entire chat? This action cannot be undone.')) return;
 
         try {
-            const res = await fetch(`${process.env.REACT_APP_API_URL || 'http://localhost:8000'}/api/conversations/${conversationId}`, {
+            const res = await fetch(`${config.API_URL}/api/conversations/${conversationId}`, {
                 method: 'DELETE',
                 headers: {
                     'Content-Type': 'application/json',

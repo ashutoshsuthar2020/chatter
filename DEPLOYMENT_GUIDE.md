@@ -1,15 +1,30 @@
 # Chat App Kubernetes Deployment Guide
 
-## 🎯 Overview
+## 🚀 Production Deployment Checklist (August 2025)
 
-This guide provides complete instructions for deploying the Chat Application to Kubernetes using Helm charts. The application is production-ready with enterprise features including horizontal scaling, health monitoring, and security policies.
+1. **Set correct backend URL in client .env:**
+  - `REACT_APP_INGRESS_DOMAIN=http://<server-external-ip>:8000`
+2. **Build and push multi-arch Docker images for both client and server:**
+  - `docker buildx build --platform linux/amd64,linux/arm64 -t <user>/client:<tag> --push .`
+  - `docker buildx build --platform linux/amd64,linux/arm64 -t <user>/server:<tag> --push .`
+3. **Update Helm values.yaml for both charts:**
+  - Set image repository and tag for client and server
+  - Set `pullPolicy: Always` for latest tag
+  - Set `client.ingressDomain` to backend URL
+4. **Deploy/upgrade with Helm:**
+  - `helm upgrade --install chat-server ./helm/server -n chatter`
+  - `helm upgrade --install chat-client ./helm/client -n chatter`
+5. **Verify services:**
+  - `kubectl get svc -n chatter` (check for EXTERNAL-IP)
+6. **Check logs and connectivity:**
+  - `kubectl logs <pod> -n chatter`
+  - Test HTTP and WebSocket endpoints from browser and CLI
+7. **CORS and Socket.IO CORS:**
+  - Ensure backend allows requests from client EXTERNAL-IP
+8. **Troubleshooting:**
+  - If client still uses old env, repeat build and push with correct .env
+  - Use unique image tags to avoid cache issues
 
-## 📋 Prerequisites
-
-- **Kubernetes Cluster**: Docker Desktop, minikube, kind, or cloud provider (GKE, EKS, AKS)
-- **Helm 3.0+**: Package manager for Kubernetes
-- **kubectl**: Kubernetes command-line tool
-- **Docker**: For building and managing container images
 
 ## 🏗️ Architecture
 
@@ -39,196 +54,6 @@ This guide provides complete instructions for deploying the Chat Application to 
                            │  │ (Messages)  │ │   (Data)    │  │
                            │  └─────────────┘ └─────────────┘  │
                            └───────────────────────────────────┘
-```
-
-## 🔧 Configuration Summary
-
-### Images Built
-- **Server**: `myrepo/chat-server:latest` (279MB)
-- **Client**: `myrepo/chat-client:latest` (84.5MB)
-
-### Kubernetes Resources
-- **Deployments**: Server and Client with rolling updates
-- **Services**: ClusterIP for internal communication
-- **Ingress**: nginx with TLS, WebSocket support, CORS
-- **HPA**: Auto-scaling based on CPU/Memory
-- **PDB**: High availability during updates
-- **NetworkPolicy**: Security isolation
-- **ConfigMaps/Secrets**: Configuration management
-
-## 🚀 Quick Deployment
-
-### 1. Start Kubernetes Cluster
-
-Choose one option:
-
-**Docker Desktop**:
-```bash
-# Enable Kubernetes in Docker Desktop settings
-# Apply & Restart
-```
-
-**minikube**:
-```bash
-brew install minikube
-minikube start --memory 4096 --cpus 2
-```
-
-### 2. Deploy the Application
-
-```bash
-# Create namespace
-kubectl create namespace chat-app
-
-# Deploy with embedded Redis and MongoDB
-cd helm/chat-app
-helm install chat-app . -n chat-app \
-  --set redis.enabled=true \
-  --set mongodb.enabled=true
-
-# for external redis and mongo
-helm install chat-app . -n chat-app \
-  --set redis.enabled=false \
-  --set mongodb.enabled=false \
-  --set externalRedis.host=your-redis-host \
-  --set externalMongodb.uri="mongodb+srv://<username>:<password>@<cluster-url>/chatter?retryWrites=true&w=majority"
-```
-
-### 3. Verify Deployment
-
-```bash
-# Check pod status
-kubectl get pods -n chat-app
-
-# Check services
-kubectl get services -n chat-app
-
-# Check ingress
-kubectl get ingress -n chat-app
-
-# Check HPA
-kubectl get hpa -n chat-app
-```
-
-## 🔍 Monitoring & Troubleshooting
-
-### Health Checks
-
-```bash
-# Check deployment health
-kubectl get deployments -n chat-app
-
-# View pod details
-kubectl describe pods -l app.kubernetes.io/name=chat-app -n chat-app
-
-# Check resource usage
-kubectl top pods -n chat-app
-```
-
-### Logs
-
-```bash
-# Server logs
-kubectl logs -l app.kubernetes.io/component=server -n chat-app -f
-
-# Client logs  
-kubectl logs -l app.kubernetes.io/component=client -n chat-app -f
-
-# Previous pod logs (if pod restarted)
-kubectl logs -l app.kubernetes.io/component=server -n chat-app -p
-```
-
-### Scaling
-
-```bash
-# Manual scaling
-kubectl scale deployment chat-app-server --replicas=10 -n chat-app
-
-# Check HPA status
-kubectl describe hpa chat-app-server -n chat-app
-```
-
-### Configuration Updates
-
-```bash
-# Update configuration
-helm upgrade chat-app ./helm/chat-app -n chat-app -f updated-values.yaml
-
-# Rollback if needed
-helm rollback chat-app 1 -n chat-app
-
-# View release history
-helm history chat-app -n chat-app
-```
-
-## 🌐 External Access
-
-### Local Development (Port Forward)
-
-```bash
-# Access client
-kubectl port-forward service/chat-app-client 3000:80 -n chat-app
-# Visit: http://localhost:3000
-
-# Access server directly
-kubectl port-forward service/chat-app-server 8000:8000 -n chat-app
-# Visit: http://localhost:8000/health
-```
-
-### Ingress Setup
-
-1. **Install nginx ingress controller**:
-```bash
-kubectl apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/controller-v1.8.1/deploy/static/provider/cloud/deploy.yaml
-```
-
-2. **Update DNS**: Point your domain to the ingress load balancer IP
-
-3. **TLS Certificate**: Use cert-manager for automatic TLS:
-```bash
-kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.13.1/cert-manager.yaml
-```
-
-## 📈 Performance & Scaling
-
-### Horizontal Pod Autoscaling
-
-- **Server**: 3-20 replicas based on 70% CPU, 80% memory
-- **Client**: 2-10 replicas based on 70% CPU
-
-### Resource Limits
-
-| Component | CPU Request | Memory Request | CPU Limit | Memory Limit |
-|-----------|-------------|----------------|-----------|--------------|
-| Server    | 250m        | 256Mi          | 500m      | 512Mi        |
-| Client    | 100m        | 128Mi          | 200m      | 256Mi        |
-
-### Pod Disruption Budget
-
-- Minimum 1 pod available during updates
-- Ensures zero-downtime deployments
-
-## 🔒 Security Features
-
-- **Network Policies**: Restrict pod-to-pod communication
-- **Security Contexts**: Non-root users, read-only filesystems
-- **Secrets Management**: Encrypted storage of sensitive data
-- **TLS Termination**: HTTPS/WSS for all traffic
-- **CORS Configuration**: Controlled cross-origin access
-
-## 🧹 Cleanup
-
-```bash
-# Uninstall the application
-helm uninstall chat-app -n chat-app
-
-# Delete namespace
-kubectl delete namespace chat-app
-
-# Stop local cluster (if using kind/minikube)
-kind delete cluster
-# or
-minikube stop && minikube delete
 ```
 
 ## 🎉 Success Metrics

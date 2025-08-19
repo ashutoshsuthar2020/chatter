@@ -17,21 +17,22 @@ const SimpleDashboard = () => {
         const loggedUser = JSON.parse(localStorage.getItem('user:detail'));
         if (loggedUser) {
             setUser(loggedUser);
-            
-            // Connect to socket
-            const newSocket = io('localhost:8080');
+
+
+            // Connect to socket using config.WS_URL
+            const newSocket = io(config.WS_URL);
             setSocket(newSocket);
-            
+
             newSocket.on('connect', () => {
                 console.log('✅ Connected to socket');
                 newSocket.emit('register', loggedUser.id);
             });
-            
+
             newSocket.on('newMessage', (data) => {
                 console.log('💬 New message received:', data);
-                if (currentReceiver && 
+                if (currentReceiver &&
                     ((data.senderId === currentReceiver.id && data.receiverId === loggedUser.id) ||
-                     (data.senderId === loggedUser.id && data.receiverId === currentReceiver.id))) {
+                        (data.senderId === loggedUser.id && data.receiverId === currentReceiver.id))) {
                     setMessages(prev => [...prev, {
                         _id: data._id,
                         senderId: data.senderId,
@@ -40,7 +41,7 @@ const SimpleDashboard = () => {
                     }]);
                 }
             });
-            
+
             return () => newSocket.close();
         }
     }, []);
@@ -69,18 +70,18 @@ const SimpleDashboard = () => {
     // Add contact
     const addContact = async () => {
         if (!newContactPhone.trim()) return;
-        
+
         try {
             const token = localStorage.getItem('user:token');
-            
+
             // First, search for user
             const searchRes = await fetch(`${config.API_URL}/api/users/search?phoneNumber=${newContactPhone}`, {
                 headers: { 'Authorization': `Bearer ${token}` }
             });
-            
+
             if (searchRes.ok) {
                 const foundUser = await searchRes.json();
-                
+
                 // Add to contacts
                 const addRes = await fetch(`${config.API_URL}/api/contacts`, {
                     method: 'POST',
@@ -94,7 +95,7 @@ const SimpleDashboard = () => {
                         contactName: foundUser.fullName
                     })
                 });
-                
+
                 if (addRes.ok) {
                     setNewContactPhone('');
                     loadContacts();
@@ -114,13 +115,13 @@ const SimpleDashboard = () => {
     // Load messages for a contact
     const loadMessages = async (contact) => {
         setCurrentReceiver(contact.contactUserId);
-        
+
         try {
             const token = localStorage.getItem('user:token');
             const res = await fetch(`${config.API_URL}/api/messages/${user.id}?receiverId=${contact.contactUserId._id}`, {
                 headers: { 'Authorization': `Bearer ${token}` }
             });
-            
+
             if (res.ok) {
                 const data = await res.json();
                 setMessages(data.messages || []);
@@ -134,13 +135,13 @@ const SimpleDashboard = () => {
     // Send message
     const sendMessage = () => {
         if (!messageInput.trim() || !socket || !currentReceiver) return;
-        
+
         const messageData = {
             senderId: user.id,
             receiverId: currentReceiver._id,
             message: messageInput.trim()
         };
-        
+
         // Add to UI immediately
         setMessages(prev => [...prev, {
             _id: 'temp_' + Date.now(),
@@ -148,7 +149,7 @@ const SimpleDashboard = () => {
             message: messageInput.trim(),
             createdAt: new Date()
         }]);
-        
+
         setMessageInput('');
         socket.emit('sendMessage', messageData);
     };
@@ -172,7 +173,7 @@ const SimpleDashboard = () => {
                     <h2 className="text-xl font-bold">Chatter</h2>
                     <p className="text-sm text-gray-600">{user.fullName}</p>
                 </div>
-                
+
                 {/* Add Contact */}
                 <div className="p-4 border-b">
                     <div className="flex gap-2">
@@ -191,16 +192,15 @@ const SimpleDashboard = () => {
                         </button>
                     </div>
                 </div>
-                
+
                 {/* Contacts List */}
                 <div className="overflow-y-auto">
                     {contacts.map((contact) => (
                         <div
                             key={contact._id}
                             onClick={() => loadMessages(contact)}
-                            className={`p-4 border-b cursor-pointer hover:bg-gray-50 ${
-                                currentReceiver?._id === contact.contactUserId._id ? 'bg-blue-50' : ''
-                            }`}
+                            className={`p-4 border-b cursor-pointer hover:bg-gray-50 ${currentReceiver?._id === contact.contactUserId._id ? 'bg-blue-50' : ''
+                                }`}
                         >
                             <div className="font-semibold">{contact.contactName}</div>
                             <div className="text-sm text-gray-600">{contact.contactPhoneNumber}</div>
@@ -208,7 +208,7 @@ const SimpleDashboard = () => {
                     ))}
                 </div>
             </div>
-            
+
             {/* Chat Area */}
             <div className="flex-1 flex flex-col">
                 {currentReceiver ? (
@@ -218,7 +218,7 @@ const SimpleDashboard = () => {
                             <h3 className="font-semibold">{currentReceiver.fullName}</h3>
                             <p className="text-sm text-gray-600">{currentReceiver.phoneNumber}</p>
                         </div>
-                        
+
                         {/* Messages */}
                         <div className="flex-1 overflow-y-auto p-4 space-y-2">
                             {messages.map((msg) => (
@@ -227,11 +227,10 @@ const SimpleDashboard = () => {
                                     className={`flex ${msg.senderId === user.id ? 'justify-end' : 'justify-start'}`}
                                 >
                                     <div
-                                        className={`max-w-xs px-4 py-2 rounded-lg ${
-                                            msg.senderId === user.id
-                                                ? 'bg-blue-500 text-white'
-                                                : 'bg-gray-200 text-gray-800'
-                                        }`}
+                                        className={`max-w-xs px-4 py-2 rounded-lg ${msg.senderId === user.id
+                                            ? 'bg-blue-500 text-white'
+                                            : 'bg-gray-200 text-gray-800'
+                                            }`}
                                     >
                                         {msg.message}
                                     </div>
@@ -239,7 +238,7 @@ const SimpleDashboard = () => {
                             ))}
                             <div ref={messageEndRef} />
                         </div>
-                        
+
                         {/* Message Input */}
                         <div className="p-4 bg-white border-t">
                             <div className="flex gap-2">

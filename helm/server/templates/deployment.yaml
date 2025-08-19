@@ -1,0 +1,38 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: chat-server
+  labels:
+    app: chat-server
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: chat-server
+  template:
+    metadata:
+      labels:
+        app: chat-server
+    spec:
+      containers:
+        - name: server
+          image: "{{ .Values.server.image.repository }}:{{ .Values.server.image.tag }}"
+          imagePullPolicy: {{ .Values.server.image.pullPolicy | default "IfNotPresent" }}
+          ports:
+            - containerPort: 8000
+          env:
+            - name: PORT
+              value: "8000"
+            - name: NODE_ENV
+              value: "development"
+            - name: MONGODB_URI
+              value: {{ .Values.server.mongodbUri | default "mongodb://chat-server-mongodb:27017/chatter" | quote }}
+            - name: REDIS_URL
+              value: {{ .Values.server.redisUrl | default "redis://chat-server-redis-master:6379" | quote }}
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "200m"
+            limits:
+              memory: "512Mi"
+              cpu: "1000m"
