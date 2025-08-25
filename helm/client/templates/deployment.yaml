@@ -1,0 +1,32 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: chat-client
+  labels:
+    app: chat-client
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: chat-client
+  template:
+    metadata:
+      labels:
+        app: chat-client
+    spec:
+      containers:
+        - name: client
+          image: "{{ .Values.client.image.repository }}:{{ .Values.client.image.tag }}"
+          imagePullPolicy: {{ .Values.client.image.pullPolicy | default "IfNotPresent" }}
+          ports:
+            - containerPort: 3000
+          env:
+            - name: REACT_APP_INGRESS_DOMAIN
+              value: {{ .Values.client.ingressDomain | quote }}
+          resources:
+            requests:
+              memory: "128Mi"
+              cpu: "100m"
+            limits:
+              memory: "256Mi"
+              cpu: "500m"

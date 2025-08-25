@@ -1,4 +1,51 @@
-client/node_modules
-server/node_modules
-client/package-lock.json
-server/package-lock.json
+# Dependencies
+node_modules/
+client/node_modules/
+server/node_modules/
+
+# Production builds
+client/build/
+server/dist/
+
+# Environment variables
+.env
+client/.env
+server/.env
+
+# Kubernetes secrets (sensitive data)
+k8s/secrets-local.yaml
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+logs_*/
+build-*.log
+deployment.log
+
+# Runtime data
+pids
+*.pid
+*.seed
+*.pid.lock
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Package lock files (keep for production consistency)
+# client/package-lock.json
+# server/package-lock.json

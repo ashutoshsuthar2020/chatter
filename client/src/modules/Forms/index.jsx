@@ -1,5 +1,3 @@
-import Input from './../../components/Input/index';
-import Button from './../../components/Button/index';
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import config from '../../config';
@@ -8,12 +6,9 @@ const Form = ({
     isSignInPage = true,
 }) => {
     const [data, setData] = useState({
-        ...(!isSignInPage && {
-            fullName: ''
-        }),
-        email: '',
-        password: '',
-    })
+        fullName: '',
+        phoneNumber: ''
+    });
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState('');
     const [success, setSuccess] = useState('');
@@ -27,38 +22,63 @@ const Form = ({
         setSuccess('');
 
         try {
-            const res = await fetch(`${config.API_URL}/api/${isSignInPage ? 'login' : 'register'}`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify(data)
-            });
+            if (isSignInPage) {
+                // Sign In - just need phone number
+                if (!data.phoneNumber) {
+                    setError('Phone number is required');
+                    setIsLoading(false);
+                    return;
+                }
+                console.log('API URL:', `${config.API_URL}/api/login`);
+                const res = await fetch(`${config.API_URL}/api/login`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        phoneNumber: data.phoneNumber
+                    })
+                });
 
-            const resData = await res.json();
+                const resData = await res.json();
 
-            if (res.status === 400 || res.status === 401) {
-                setError(resData.message || 'Invalid credentials');
-            } else if (res.status === 200 || res.status === 201) {
-                if (resData.token) {
-                    localStorage.setItem('user:token', resData.token);
+                if (res.status === 200) {
                     localStorage.setItem('user:detail', JSON.stringify(resData.user));
-                    
-                    if (isSignInPage) {
-                        setSuccess('Sign in successful! Redirecting...');
-                        setTimeout(() => navigate('/'), 1000);
-                    } else {
-                        setSuccess('Account created successfully! Redirecting to dashboard...');
-                        setTimeout(() => navigate('/'), 1500);
-                    }
+                    setSuccess('Login successful! Redirecting...');
+                    setTimeout(() => navigate('/'), 1000);
                 } else {
-                    setError(resData.message || 'Something went wrong');
+                    setError(resData.message || 'Login failed');
                 }
             } else {
-                setError('Server error. Please try again.');
+                // Sign Up - need both name and phone number
+                if (!data.fullName || !data.phoneNumber) {
+                    setError('Full name and phone number are required');
+                    setIsLoading(false);
+                    return;
+                }
+                const res = await fetch(`${config.API_URL}/api/register`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        fullName: data.fullName,
+                        phoneNumber: data.phoneNumber
+                    })
+                });
+
+                const resData = await res.json();
+
+                if (res.status === 201) {
+                    localStorage.setItem('user:detail', JSON.stringify(resData.user));
+                    setSuccess('Registration successful! Redirecting...');
+                    setTimeout(() => navigate('/'), 1000);
+                } else {
+                    setError(resData.message || 'Registration failed');
+                }
             }
         } catch (error) {
-            setError('Network error. Please check your connection.');
+            setError('Network error. Please try again.');
         } finally {
             setIsLoading(false);
         }
@@ -68,67 +88,88 @@ const Form = ({
         <div className="min-h-screen flex items-center justify-center px-4">
             <div className="bg-white w-full max-w-md shadow-medium rounded-3xl p-8">
                 <div className="text-center mb-8">
+                    <div className="mb-6">
+                        <div className="w-16 h-16 bg-primary-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                            <svg className="w-8 h-8 text-primary-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+                            </svg>
+                        </div>
+                    </div>
                     <h1 className="text-3xl font-bold text-neutral-900 mb-2">
-                        Welcome {isSignInPage && 'Back'}
+                        Welcome to Chatter
                     </h1>
                     <p className="text-neutral-600">
-                        {isSignInPage ? 'Sign in to continue chatting' : 'Create your account to get started'}
+                        {isSignInPage ? 'Sign in to continue chatting with your friends' : 'Create your account to start chatting'}
                     </p>
                 </div>
 
-                <form className='space-y-6' onSubmit={(e) => handleSubmit(e)}>
-                    {/* Error Message */}
-                    {error && (
-                        <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-xl text-sm">
-                            {error}
-                        </div>
-                    )}
-                    
-                    {/* Success Message */}
-                    {success && (
-                        <div className="bg-green-50 border border-green-200 text-green-700 px-4 py-3 rounded-xl text-sm">
-                            {success}
+                {/* Error Message */}
+                {error && (
+                    <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-xl text-sm mb-6">
+                        {error}
+                    </div>
+                )}
+
+                {/* Success Message */}
+                {success && (
+                    <div className="bg-green-50 border border-green-200 text-green-700 px-4 py-3 rounded-xl text-sm mb-6">
+                        {success}
+                    </div>
+                )}
+
+                {/* Phone Number Form */}
+                <form onSubmit={handleSubmit} className="space-y-4 mb-6">
+                    {!isSignInPage && (
+                        <div>
+                            <label htmlFor="fullName" className="block text-sm font-medium text-neutral-700 mb-2">
+                                Full Name
+                            </label>
+                            <input
+                                type="text"
+                                id="fullName"
+                                value={data.fullName}
+                                onChange={(e) => setData({ ...data, fullName: e.target.value })}
+                                className="w-full px-4 py-3 border border-neutral-300 rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-primary-500 transition-colors"
+                                placeholder="Enter your full name"
+                                required={!isSignInPage}
+                                disabled={isLoading}
+                            />
                         </div>
                     )}
 
-                    {!isSignInPage && (
-                        <Input
-                            label='Full name'
-                            name='name'
-                            placeholder='Enter your full name'
-                            value={data.fullName}
-                            onChange={(e) => setData({ ...data, fullName: e.target.value })}
+                    <div>
+                        <label htmlFor="phoneNumber" className="block text-sm font-medium text-neutral-700 mb-2">
+                            Phone Number
+                        </label>
+                        <input
+                            type="tel"
+                            id="phoneNumber"
+                            value={data.phoneNumber}
+                            onChange={(e) => setData({ ...data, phoneNumber: e.target.value })}
+                            className="w-full px-4 py-3 border border-neutral-300 rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-primary-500 transition-colors"
+                            placeholder="Enter your phone number"
+                            required
                             disabled={isLoading}
                         />
-                    )}
-                    <Input
-                        label='Email address'
-                        name='email'
-                        type='email'
-                        placeholder='Enter your email'
-                        value={data.email}
-                        onChange={(e) => setData({ ...data, email: e.target.value })}
-                        disabled={isLoading}
-                    />
-                    <Input
-                        label='Password'
-                        type='password'
-                        name='password'
-                        placeholder='Enter your password'
-                        value={data.password}
-                        onChange={(e) => setData({ ...data, password: e.target.value })}
-                        disabled={isLoading}
-                    />
-                    <Button
-                        label={isLoading ? (isSignInPage ? 'Signing in...' : 'Creating account...') : (isSignInPage ? 'Sign in' : 'Sign up')}
+                    </div>
+
+                    <button
                         type="submit"
-                        className='w-full'
-                        size='lg'
                         disabled={isLoading}
-                    />
+                        className="w-full bg-primary-600 hover:bg-primary-700 disabled:bg-primary-300 text-white font-medium py-3 px-4 rounded-xl transition-colors focus:ring-2 focus:ring-primary-500 focus:ring-offset-2"
+                    >
+                        {isLoading ? (
+                            <div className="flex items-center justify-center">
+                                <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white mr-2"></div>
+                                {isSignInPage ? 'Signing in...' : 'Creating account...'}
+                            </div>
+                        ) : (
+                            isSignInPage ? 'Sign In' : 'Create Account'
+                        )}
+                    </button>
                 </form>
 
-                <div className="mt-6 text-center text-sm text-neutral-600">
+                <div className="text-center text-sm text-neutral-600">
                     {isSignInPage ? "Don't have an account?" : "Already have an account?"}{' '}
                     <span
                         className='text-primary-600 hover:text-primary-700 cursor-pointer font-medium transition-colors'
@@ -136,6 +177,12 @@ const Form = ({
                     >
                         {isSignInPage ? 'Sign up' : 'Sign in'}
                     </span>
+                </div>
+
+                <div className="mt-6 pt-6 border-t border-neutral-100 text-center">
+                    <p className="text-xs text-neutral-500">
+                        By continuing, you agree to our Terms of Service and Privacy Policy
+                    </p>
                 </div>
             </div>
         </div>

@@ -1,13 +1,12 @@
-import './App.css';
 import Form from './modules/Forms/index.jsx'
 import Dashboard from './modules/Dashboard/index.jsx'
 import { Routes, Route, Navigate } from 'react-router-dom';
 
 const ProtectedRoute = ({ children, auth = false }) => {
-  const isLoggedIn = localStorage.getItem('user:token') !== null || false;
+  const isLoggedIn = localStorage.getItem('user:detail') !== null;
   if (!isLoggedIn && auth) {
-    return <Navigate to={'users/sign_in'} />
-  } else if (isLoggedIn && ['users/sign_in', 'users/sign_up'].includes(window.location.pathname)) {
+    return <Navigate to={'/users/sign_in'} />
+  } else if (isLoggedIn && ['/users/sign_in', '/users/sign_up'].includes(window.location.pathname)) {
     return <Navigate to={'/'} />
   }
   return children;
