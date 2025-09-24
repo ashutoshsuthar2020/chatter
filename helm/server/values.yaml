@@ -17,6 +17,7 @@ server:
     tag: latest
     pullPolicy: IfNotPresent
   port: 8000
+  replicaCount: 1
   # If you want to override the MongoDB URI, set it here
   mongodbUri: ""
   # If you want to override the Redis URL, set it here

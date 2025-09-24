@@ -7,7 +7,8 @@ const Form = ({
 }) => {
     const [data, setData] = useState({
         fullName: '',
-        phoneNumber: ''
+        phoneNumber: '',
+        password: ''
     });
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState('');
@@ -23,20 +24,20 @@ const Form = ({
 
         try {
             if (isSignInPage) {
-                // Sign In - just need phone number
-                if (!data.phoneNumber) {
-                    setError('Phone number is required');
+                // Sign In - need phone number and password
+                if (!data.phoneNumber || !data.password) {
+                    setError('Phone number and password are required');
                     setIsLoading(false);
                     return;
                 }
-                console.log('API URL:', `${config.API_URL}/api/login`);
                 const res = await fetch(`${config.API_URL}/api/login`, {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json'
                     },
                     body: JSON.stringify({
-                        phoneNumber: data.phoneNumber
+                        phoneNumber: data.phoneNumber,
+                        password: data.password
                     })
                 });
 
@@ -50,9 +51,9 @@ const Form = ({
                     setError(resData.message || 'Login failed');
                 }
             } else {
-                // Sign Up - need both name and phone number
-                if (!data.fullName || !data.phoneNumber) {
-                    setError('Full name and phone number are required');
+                // Sign Up - need name, phone number, and password
+                if (!data.fullName || !data.phoneNumber || !data.password) {
+                    setError('Full name, phone number, and password are required');
                     setIsLoading(false);
                     return;
                 }
@@ -63,7 +64,8 @@ const Form = ({
                     },
                     body: JSON.stringify({
                         fullName: data.fullName,
-                        phoneNumber: data.phoneNumber
+                        phoneNumber: data.phoneNumber,
+                        password: data.password
                     })
                 });
 
@@ -148,6 +150,22 @@ const Form = ({
                             onChange={(e) => setData({ ...data, phoneNumber: e.target.value })}
                             className="w-full px-4 py-3 border border-neutral-300 rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-primary-500 transition-colors"
                             placeholder="Enter your phone number"
+                            required
+                            disabled={isLoading}
+                        />
+                    </div>
+
+                    <div>
+                        <label htmlFor="password" className="block text-sm font-medium text-neutral-700 mb-2">
+                            Password
+                        </label>
+                        <input
+                            type="password"
+                            id="password"
+                            value={data.password}
+                            onChange={(e) => setData({ ...data, password: e.target.value })}
+                            className="w-full px-4 py-3 border border-neutral-300 rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-primary-500 transition-colors"
+                            placeholder={isSignInPage ? "Enter your password" : "Create a password"}
                             required
                             disabled={isLoading}
                         />

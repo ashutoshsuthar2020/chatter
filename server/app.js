@@ -129,6 +129,7 @@ require('./db/connection');
 
 // Import Files
 const Users = require('./models/Users');
+const bcrypt = require('bcryptjs');
 const Conversations = require('./models/Conversations');
 const Messages = require('./models/Messages');
 const Contacts = require('./models/Contacts');
@@ -489,14 +490,20 @@ app.get('/', (req, res) => {
 
 app.post('/api/login', async (req, res, next) => {
     try {
-        const { phoneNumber } = req.body;
-        if (!phoneNumber) {
-            return res.status(400).json({ message: 'Phone number is required' });
+        const { phoneNumber, password } = req.body;
+        if (!phoneNumber || !password) {
+            return res.status(400).json({ message: 'Phone number and password are required' });
         }
 
         const user = await Users.findOne({ phoneNumber });
         if (!user) {
             return res.status(404).json({ message: 'User not found. Please register first.' });
+        }
+
+        // Check password
+        const isMatch = await bcrypt.compare(password, user.password);
+        if (!isMatch) {
+            return res.status(401).json({ message: 'Invalid password' });
         }
 
         // Update last active time
@@ -523,9 +530,9 @@ app.post('/api/login', async (req, res, next) => {
 // Simple Registration Route
 app.post('/api/register', async (req, res) => {
     try {
-        const { fullName, phoneNumber, picture } = req.body;
-        if (!fullName || !phoneNumber) {
-            return res.status(400).json({ message: 'Full name and phone number are required' });
+        const { fullName, phoneNumber, password, picture } = req.body;
+        if (!fullName || !phoneNumber || !password) {
+            return res.status(400).json({ message: 'Full name, phone number, and password are required' });
         }
 
         const existingUser = await Users.findOne({ phoneNumber });
@@ -534,10 +541,14 @@ app.post('/api/register', async (req, res) => {
             return res.status(400).json({ message: 'User already exists with this phone number' });
         }
 
+        // Hash password
+        const hashedPassword = await bcrypt.hash(password, 10);
+
         // Create new user
         const newUser = new Users({
             fullName,
             phoneNumber,
+            password: hashedPassword,
             picture: picture || ''
         });
 

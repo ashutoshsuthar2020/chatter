@@ -149,7 +149,7 @@ cd client && npm start
                               ▼                         ▼                         ▼
                     ┌─────────────────┐       ┌─────────────────┐       ┌─────────────────┐
                     │   Server 1      │◄─────►│     Redis       │◄─────►│   Server 2      │
-                    │   (Socket.IO)   │       │  (Coordination)  │       │   (Socket.IO)   │
+                    │   (Socket.IO)   │       │  (Coordination) │       │   (Socket.IO)   │
                     └─────────────────┘       │  • Sessions     │       └─────────────────┘
                               │               │  • Pub/Sub      │                 │
                               │               │  • Locks        │                 │
