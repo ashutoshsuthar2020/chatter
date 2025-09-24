@@ -4,4 +4,4 @@ client:
     tag: latest
     pullPolicy: IfNotPresent
   port: 3000
-  ingressDomain: "server.example.com"
+  replicaCount: 1

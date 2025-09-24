@@ -9,6 +9,6 @@ const db = mongoose.connection;
 
 db.on('error', console.error.bind(console, 'connection error with mongodb:'));
 db.once('open', function () {
-  console.log("Connected successfully");
-  console.log("Connection state:", mongoose.connection.readyState);
+  console.log("Connected successfully with mongoose");
+  console.log("Connection state with mongoose:", mongoose.connection.readyState);
 });

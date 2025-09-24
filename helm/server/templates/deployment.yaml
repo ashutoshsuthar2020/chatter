@@ -5,7 +5,7 @@ metadata:
   labels:
     app: chat-server
 spec:
-  replicas: 3
+  replicas: {{ .Values.server.replicaCount }}
   selector:
     matchLabels:
       app: chat-server
