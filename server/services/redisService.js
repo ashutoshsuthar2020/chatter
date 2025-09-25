@@ -1,4 +1,5 @@
 const Redis = require('ioredis');
+const logger = require('../logger');
 
 class RedisService {
     constructor() {
@@ -28,22 +29,22 @@ class RedisService {
 
             // Set up event listeners
             this.redis.on('connect', () => {
-                console.log('Redis connected successfully');
+                logger.info('Redis connected successfully');
                 this.isConnected = true;
             });
 
             this.redis.on('error', (err) => {
-                console.error('Redis connection error:', err);
+                logger.error('Redis connection error: %s', err);
                 this.isConnected = false;
             });
 
             // Wait for connection
             await this.redis.ping();
-            console.log('Redis service initialized');
+            logger.info('Redis service initialized');
 
         } catch (error) {
-            console.error('Failed to connect to Redis:', error);
-            console.log('Running without Redis - horizontal scaling disabled');
+            logger.error('Failed to connect to Redis: %s', error);
+            logger.warn('Running without Redis - horizontal scaling disabled');
         }
     }
 
@@ -59,7 +60,7 @@ class RedisService {
             }));
             return true;
         } catch (error) {
-            console.error('Error setting user session:', error);
+            logger.error('Error setting user session: %s', error);
             return false;
         }
     }
@@ -70,7 +71,7 @@ class RedisService {
             const sessionData = await this.redis.hget('user_sessions', userId);
             return sessionData ? JSON.parse(sessionData) : null;
         } catch (error) {
-            console.error('Error getting user session:', error);
+            logger.error('Error getting user session: %s', error);
             return null;
         }
     }
@@ -81,7 +82,7 @@ class RedisService {
             await this.redis.hdel('user_sessions', userId);
             return true;
         } catch (error) {
-            console.error('Error removing user session:', error);
+            logger.error('Error removing user session: %s', error);
             return false;
         }
     }
@@ -100,7 +101,7 @@ class RedisService {
             await this.redis.expire(queueKey, 7 * 24 * 60 * 60);
             return true;
         } catch (error) {
-            console.error('Error queuing message:', error);
+            logger.error('Error queuing message: %s', error);
             return false;
         }
     }
@@ -112,7 +113,7 @@ class RedisService {
             const messages = await this.redis.lrange(queueKey, 0, -1);
             return messages.map(msg => JSON.parse(msg));
         } catch (error) {
-            console.error('Error getting queued messages:', error);
+            logger.error('Error getting queued messages: %s', error);
             return [];
         }
     }
@@ -124,7 +125,7 @@ class RedisService {
             await this.redis.del(queueKey);
             return true;
         } catch (error) {
-            console.error('Error clearing user queue:', error);
+            logger.error('Error clearing user queue: %s', error);
             return false;
         }
     }
@@ -146,7 +147,7 @@ class RedisService {
                 return { success: false, lockId: null };
             }
         } catch (error) {
-            console.error('Error acquiring message lock:', error);
+            logger.error('Error acquiring message lock: %s', error);
             return { success: false, lockId: null };
         }
     }
@@ -169,7 +170,7 @@ class RedisService {
             const result = await this.redis.eval(luaScript, 1, lockKey, lockId);
             return result === 1;
         } catch (error) {
-            console.error('Error releasing lock:', error);
+            logger.error('Error releasing lock: %s', error);
             return false;
         }
     }
@@ -182,7 +183,7 @@ class RedisService {
             const seqKey = `seq:${conversationId}`;
             return await this.redis.incr(seqKey);
         } catch (error) {
-            console.error('Error getting sequence number:', error);
+            logger.error('Error getting sequence number: %s', error);
             return Date.now();
         }
     }
@@ -200,7 +201,7 @@ class RedisService {
             }));
             return true;
         } catch (error) {
-            console.error('Error broadcasting message:', error);
+            logger.error('Error broadcasting message: %s', error);
             return false;
         }
     }
@@ -219,7 +220,7 @@ class RedisService {
                         callback(eventData);
                     }
                 } catch (error) {
-                    console.error('Error processing subscribed event:', error);
+                    logger.error('Error processing subscribed event: %s', error);
                 }
             }
         });
@@ -231,9 +232,9 @@ class RedisService {
             if (this.pubClient) await this.pubClient.disconnect();
             if (this.subClient) await this.subClient.disconnect();
             this.isConnected = false;
-            console.log('Redis service disconnected');
+            logger.info('Redis service disconnected');
         } catch (error) {
-            console.error('Error disconnecting Redis:', error);
+            logger.error('Error disconnecting Redis: %s', error);
         }
     }
 }

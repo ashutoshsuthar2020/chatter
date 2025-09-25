@@ -1,4 +1,5 @@
 // localStorage-based message management system
+import logger from '../logger';
 
 const MESSAGE_STORAGE_KEY = 'chatter_messages';
 const SYNC_QUEUE_KEY = 'chatter_sync_queue';
@@ -39,7 +40,7 @@ export class MessageStorage {
                 return new Date(a.timestamp) - new Date(b.timestamp);
             });
         } catch (error) {
-            console.error('Error reading messages from localStorage:', error);
+            logger.error('Error reading messages from localStorage:', error);
             return [];
         }
     }
@@ -66,7 +67,7 @@ export class MessageStorage {
             // Check for duplicate messageId to prevent multiple entries
             const existingMessage = allMessages[conversationId].find(msg => msg.messageId === newMessage.messageId);
             if (existingMessage) {
-                console.log('Message with this ID already exists, skipping duplicate:', newMessage.messageId);
+                logger.info('Message with this ID already exists, skipping duplicate:', newMessage.messageId);
                 return existingMessage;
             }
 
@@ -89,7 +90,7 @@ export class MessageStorage {
 
             return newMessage;
         } catch (error) {
-            console.error('Error adding message to localStorage:', error);
+            logger.error('Error adding message to localStorage:', error);
             return null;
         }
     }
@@ -118,7 +119,7 @@ export class MessageStorage {
             }
             return null;
         } catch (error) {
-            console.error('Error updating message in localStorage:', error);
+            logger.error('Error updating message in localStorage:', error);
             return null;
         }
     }
@@ -145,7 +146,7 @@ export class MessageStorage {
             }
             return false;
         } catch (error) {
-            console.error('Error deleting message from localStorage:', error);
+            logger.error('Error deleting message from localStorage:', error);
             return false;
         }
     }
@@ -174,7 +175,7 @@ export class MessageStorage {
             syncQueue.push(queueItem);
             localStorage.setItem(SYNC_QUEUE_KEY, JSON.stringify(syncQueue));
         } catch (error) {
-            console.error('Error adding to sync queue:', error);
+            logger.error('Error adding to sync queue:', error);
         }
     }
 
@@ -183,7 +184,7 @@ export class MessageStorage {
         try {
             return JSON.parse(localStorage.getItem(SYNC_QUEUE_KEY) || '[]');
         } catch (error) {
-            console.error('Error reading sync queue:', error);
+            logger.error('Error reading sync queue:', error);
             return [];
         }
     }
@@ -195,7 +196,7 @@ export class MessageStorage {
             const filteredQueue = syncQueue.filter(item => item.id !== itemId);
             localStorage.setItem(SYNC_QUEUE_KEY, JSON.stringify(filteredQueue));
         } catch (error) {
-            console.error('Error removing sync queue item:', error);
+            logger.error('Error removing sync queue item:', error);
         }
     }
 
@@ -215,7 +216,7 @@ export class MessageStorage {
                 }
             }
         } catch (error) {
-            console.error('Error marking message as synced:', error);
+            logger.error('Error marking message as synced:', error);
         }
     }
 
@@ -231,7 +232,7 @@ export class MessageStorage {
 
             return count;
         } catch (error) {
-            console.error('Error counting unsynced messages:', error);
+            logger.error('Error counting unsynced messages:', error);
             return 0;
         }
     }
@@ -309,7 +310,7 @@ export class MessageStorage {
                 isLocal: true
             }));
         } catch (error) {
-            console.error('Error loading messages from server:', error);
+            logger.error('Error loading messages from server:', error);
             // Return local messages as fallback
             return this.getConversationMessages(conversationId).map(msg => ({
                 messageId: msg.messageId,

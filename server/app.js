@@ -1,14 +1,26 @@
 // declare function require(name:string);
 require('dotenv').config();
+const logger = require('./logger');
 const express = require('express');
 const PORT = process.env.PORT || 8000;
 const jwt = require('jsonwebtoken');
 const cors = require('cors');
 
+
+const bcrypt = require('bcryptjs');
 // Import services
 const redisService = require('./services/redisService');
 const messageQueueService = require('./services/messageQueueService');
 const MessageDeliveryService = require('./services/messageDeliveryService');
+
+// Import models
+const Users = require('./models/Users');
+const Conversations = require('./models/Conversations');
+const Groups = require('./models/Groups');
+const GroupConversations = require('./models/GroupConversations');
+const Messages = require('./models/Messages');
+const Contacts = require('./models/Contacts');
+const ReadReceipts = require('./models/ReadReceipts');
 
 // app Use[/]
 const app = express();
@@ -16,11 +28,11 @@ const app = express();
 // Configure CORS with dynamic origins for development
 const corsOptions = {
     origin: function (origin, callback) {
-        console.log('CORS check for origin:', origin);
+        logger.info('CORS check for origin: %s', origin);
 
         // Allow requests with no origin (mobile apps, Postman, etc.)
         if (!origin) {
-            console.log('CORS: Allowing request with no origin');
+            logger.info('CORS: Allowing request with no origin');
             return callback(null, true);
         }
 
@@ -40,7 +52,7 @@ const corsOptions = {
             ];
 
             if (devPatterns.some(pattern => pattern.test(origin))) {
-                console.log('CORS: Allowing development origin:', origin);
+                logger.info('CORS: Allowing development origin: %s', origin);
                 return callback(null, true);
             }
         }
@@ -53,18 +65,18 @@ const corsOptions = {
         ];
 
         if (allowedOrigins.includes(origin)) {
-            console.log('CORS: Allowing specific origin:', origin);
+            logger.info('CORS: Allowing specific origin: %s', origin);
             return callback(null, true);
         }
 
         // If origin not allowed and in development, allow anyway but log it
         if (isDevelopment) {
-            console.log('CORS: Development mode - allowing blocked origin anyway:', origin);
+            logger.warn('CORS: Development mode - allowing blocked origin anyway: %s', origin);
             return callback(null, true);
         }
 
         // Otherwise block it
-        console.log('CORS: BLOCKING origin:', origin);
+        logger.error('CORS: BLOCKING origin: %s', origin);
         return callback(new Error('Not allowed by CORS'));
     },
     credentials: true,
@@ -78,7 +90,7 @@ app.use(express.urlencoded({ extended: false, limit: '10mb' }));
 
 // Add debugging middleware for CORS
 app.use((req, res, next) => {
-    console.log(`${new Date().toISOString()} - ${req.method} ${req.url} - Origin: ${req.headers.origin || 'none'}`);
+    logger.info('%s - %s %s - Origin: %s', new Date().toISOString(), req.method, req.url, req.headers.origin || 'none');
     next();
 });
 
@@ -88,37 +100,21 @@ app.use((req, res, next) => {
 const server = require('http').createServer(app);
 const io = require('socket.io')(server, {
     cors: {
-        origin: function (origin, callback) {
-            console.log('Socket.IO CORS check for origin:', origin);
-
-            if (!origin) {
-                console.log('Socket.IO CORS: Allowing request with no origin');
-                return callback(null, true);
-            }
-
-            const isDevelopment = process.env.NODE_ENV !== 'production';
-            const allowedOrigins = [
-                'http://localhost:3000',
-                'http://127.0.0.1:3000',
-                'http://0.0.0.0:3000'
-            ];
-
-            if (isDevelopment) {
-                console.log('Socket.IO CORS: Development mode - allowing origin:', origin);
-                return callback(null, true);
-            }
-
-            if (allowedOrigins.includes(origin)) {
-                console.log('Socket.IO CORS: Allowing production origin:', origin);
-                return callback(null, true);
-            }
-
-            console.log('Socket.IO CORS: BLOCKING origin in production:', origin);
-            return callback(new Error('Not allowed by CORS'));
-        },
+        origin: '*', // Allow all origins for testing; restrict in production if needed
         methods: ['GET', 'POST'],
         credentials: true
     }
+});
+
+
+// Socket.IO Redis adapter for multi-server scaling
+const { createAdapter } = require('@socket.io/redis-adapter');
+const { createClient } = require('redis');
+const pubClient = createClient({ url: process.env.REDIS_URL || 'redis://my-redis-master:6379' });
+const subClient = pubClient.duplicate();
+Promise.all([pubClient.connect(), subClient.connect()]).then(() => {
+    io.adapter(createAdapter(pubClient, subClient));
+    logger.info('Socket.IO Redis adapter enabled');
 });
 
 // Initialize message delivery service
@@ -126,19 +122,6 @@ const messageDeliveryService = new MessageDeliveryService(io);
 
 // connect database
 require('./db/connection');
-
-// Import Files
-const Users = require('./models/Users');
-const bcrypt = require('bcryptjs');
-const Conversations = require('./models/Conversations');
-const Messages = require('./models/Messages');
-const Contacts = require('./models/Contacts');
-const Groups = require('./models/Groups');
-const GroupConversations = require('./models/GroupConversations');
-const ReadReceipts = require('./models/ReadReceipts');
-// const { Socket } = require('socket.io');
-
-
 
 // Helper function to get updated conversations list for a user
 const getUpdatedConversations = async (userId) => {
@@ -522,7 +505,7 @@ app.post('/api/login', async (req, res, next) => {
         });
 
     } catch (error) {
-        console.log(error, 'Login Error');
+        logger.error('Login Error: %s', error);
         return res.status(500).json({ message: 'Server error during login' });
     }
 });
@@ -565,7 +548,7 @@ app.post('/api/register', async (req, res) => {
         });
 
     } catch (error) {
-        console.log(error, 'Register Error');
+        logger.error('Register Error: %s', error);
         return res.status(500).json({ message: 'Server error during registration' });
     }
 });
@@ -632,7 +615,7 @@ app.post('/api/conversations', async (req, res) => {
             conversationId: newConversation._id
         });
     } catch (error) {
-        console.log(error, 'Error');
+        logger.error('Create Conversation Error: %s', error);
         res.status(500).json({ error: 'Failed to create conversation' });
     }
 })
@@ -640,7 +623,7 @@ app.post('/api/conversations', async (req, res) => {
 app.post('/api/message', async (req, res) => {
     try {
         const { conversationId, senderId, message, receiverId = '', isGroup = false } = req.body;
-        console.log('API message received:', { conversationId, senderId, message, receiverId, isGroup });
+        logger.info('API message received: %o', { conversationId, senderId, message, receiverId, isGroup });
 
         if (!senderId || !message) {
             return res.status(400).send('Please fill all required fields.')
@@ -716,7 +699,7 @@ app.post('/api/message', async (req, res) => {
                 user: { id: sender._id.toString(), fullName: sender.fullName, phoneNumber: sender.phoneNumber }
             };
 
-            console.log('NEW CONVERSATION - Message data being sent:', messageData);
+            logger.info('NEW CONVERSATION - Message data being sent: %o', messageData);
 
             // Send to both sender and receiver
             const receiverUser = users.find(user => user.userId === receiverId);
@@ -836,8 +819,8 @@ app.post('/api/message', async (req, res) => {
 
         if (isGroup) {
             // For group messages, get all group members and send to all online members
-            console.log('Processing group message via API');
-            console.log('Looking for conversation with ID:', conversationId);
+            logger.info('Processing group message via API');
+            logger.info('Looking for conversation with ID: %s', conversationId);
 
             // Ensure conversationId is a proper ObjectId
             const mongoose = require('mongoose');
@@ -847,7 +830,7 @@ app.post('/api/message', async (req, res) => {
             }
 
             const conversation = await GroupConversations.findById(conversationId);
-            console.log('Found group conversation:', conversation);
+            logger.info('Found group conversation: %o', conversation);
 
             if (conversation) {
                 console.log('Conversation members:', conversation.members);
@@ -887,33 +870,33 @@ app.post('/api/message', async (req, res) => {
                     }
                 }
             } else {
-                console.log('No group conversation found with ID:', conversationId);
+                logger.warn('No group conversation found with ID: %s', conversationId);
                 // Let's try to find the group conversation with a different approach
                 const allGroupConversations = await GroupConversations.find({});
-                console.log('All group conversations in database:', allGroupConversations.map(c => ({ id: c._id.toString(), groupId: c.groupId, members: c.members })));
+                logger.info('All group conversations in database: %o', allGroupConversations.map(c => ({ id: c._id.toString(), groupId: c.groupId, members: c.members })));
             }
         } else {
             // Regular one-on-one message
-            console.log('Processing regular message via API');
-            console.log('Active users array:', users.map(u => ({ userId: u.userId, socketId: u.socketId })));
-            console.log('Looking for sender:', senderId, 'and receiver:', receiverId);
+            logger.info('Processing regular message via API');
+            logger.info('Active users array: %o', users.map(u => ({ userId: u.userId, socketId: u.socketId })));
+            logger.info('Looking for sender: %s and receiver: %s', senderId, receiverId);
 
             const receiverUser = users.find(user => user.userId === receiverId);
             const senderUser = users.find(user => user.userId === senderId);
 
-            console.log('Found sender user:', senderUser ? `online (socket: ${senderUser.socketId})` : 'offline');
-            console.log('Found receiver user:', receiverUser ? `online (socket: ${receiverUser.socketId})` : 'offline');
+            logger.info('Found sender user: %s', senderUser ? `online (socket: ${senderUser.socketId})` : 'offline');
+            logger.info('Found receiver user: %s', receiverUser ? `online (socket: ${receiverUser.socketId})` : 'offline');
 
             // Auto-add contacts for both sender and receiver
-            console.log(`Auto-adding contacts for regular message: sender=${senderId}, receiver=${receiverId}`);
+            logger.info('Auto-adding contacts for regular message: sender=%s, receiver=%s', senderId, receiverId);
             await autoAddContact(receiverId, senderId); // Add sender to receiver's contacts
             await autoAddContact(senderId, receiverId); // Add receiver to sender's contacts
 
-            console.log('REGULAR MESSAGE - Message data being sent:', messageData);
+            logger.info('REGULAR MESSAGE - Message data being sent: %o', messageData);
 
             // Always emit to sender for confirmation
             if (senderUser) {
-                console.log(`API Regular: Emitting getMessage to sender ${senderId} via socket ${senderUser.socketId}`);
+                logger.info('API Regular: Emitting getMessage to sender %s via socket %s', senderId, senderUser.socketId);
                 io.to(senderUser.socketId).emit('getMessage', messageData);
                 // Notify sender to refresh conversation list for proper sorting
                 io.to(senderUser.socketId).emit('conversationUpdated', {
@@ -926,19 +909,19 @@ app.post('/api/message', async (req, res) => {
                 });
                 // Send updated conversation list for real-time sorting
                 const updatedConversations = await getUpdatedConversations(senderId);
-                console.log(`API Regular: Emitting conversationsListUpdated to sender ${senderId} with ${updatedConversations.length} conversations`);
+                logger.info('API Regular: Emitting conversationsListUpdated to sender %s with %d conversations', senderId, updatedConversations.length);
                 io.to(senderUser.socketId).emit('conversationsListUpdated', {
                     conversations: updatedConversations,
                     action: 'messageSent',
                     updatedConversationId: conversationId.toString()
                 });
             } else {
-                console.log(`API Regular: Sender ${senderId} is not online`);
+                logger.warn('API Regular: Sender %s is not online', senderId);
             }
 
             // Emit to receiver if they're online
             if (receiverUser && receiverUser.socketId !== senderUser?.socketId) {
-                console.log(`API Regular: Emitting getMessage to receiver ${receiverId} via socket ${receiverUser.socketId}`);
+                logger.info('API Regular: Emitting getMessage to receiver %s via socket %s', receiverId, receiverUser.socketId);
                 io.to(receiverUser.socketId).emit('getMessage', messageData);
 
                 // Also ensure the receiver has this conversation in their chat list
@@ -969,7 +952,7 @@ app.post('/api/message', async (req, res) => {
                 });
                 // Send updated conversation list for real-time sorting
                 const updatedConversations = await getUpdatedConversations(receiverId);
-                console.log(`API Regular: Emitting conversationsListUpdated to receiver ${receiverId} with ${updatedConversations.length} conversations`);
+                logger.info('API Regular: Emitting conversationsListUpdated to receiver %s with %d conversations', receiverId, updatedConversations.length);
                 io.to(receiverUser.socketId).emit('conversationsListUpdated', {
                     conversations: updatedConversations,
                     action: 'messageReceived',
@@ -988,7 +971,7 @@ app.post('/api/message', async (req, res) => {
             conversationId: conversationId.toString()
         });
     } catch (error) {
-        console.log(error, 'Error')
+        logger.error('Send Message Error: %s', error);
         res.status(500).send('Failed to send message');
     }
 })
@@ -1021,7 +1004,7 @@ app.get('/api/message/:conversationId', async (req, res) => {
             checkMessages(conversationId);
         }
     } catch (error) {
-        console.log('Error', error)
+        logger.error('Get Message Error: %s', error);
     }
 })
 
@@ -1070,7 +1053,7 @@ app.post('/api/conversations/:conversationId/mark-read', async (req, res) => {
         if (lastSeenMessageId) {
             // Use the provided message ID (e.g., when user sends a message)
             messageIdToMark = lastSeenMessageId;
-            console.log(`Using provided message ID: ${messageIdToMark}`);
+            logger.info('Using provided message ID: %s', messageIdToMark);
         } else {
             // Get the latest message in this conversation (default behavior)
             const latestMessage = await Messages.findOne({ conversationId: conversationId })
@@ -1083,7 +1066,7 @@ app.post('/api/conversations/:conversationId/mark-read', async (req, res) => {
             }
 
             messageIdToMark = latestMessage._id;
-            console.log(`Using latest message ID: ${messageIdToMark}`);
+            logger.info('Using latest message ID: %s', messageIdToMark);
         }
 
         // Update or create read receipt
@@ -1103,7 +1086,7 @@ app.post('/api/conversations/:conversationId/mark-read', async (req, res) => {
             }
         );
 
-        console.log(`Marked conversation ${conversationId} as read for user ${userId} up to message ${messageIdToMark}`);
+        logger.info('Marked conversation %s as read for user %s up to message %s', conversationId, userId, messageIdToMark);
 
         // Send updated conversation list to user with new unread counts
         const updatedConversations = await getUpdatedConversations(userId);
@@ -1153,7 +1136,7 @@ app.get('/api/contacts/:userId', async (req, res) => {
 
         res.status(200).json(contactsData);
     } catch (error) {
-        console.log('Error fetching contacts:', error);
+        logger.error('Error fetching contacts: %s', error);
         res.status(500).json({ error: 'Failed to fetch contacts' });
     }
 });
@@ -1216,7 +1199,7 @@ app.post('/api/contacts', async (req, res) => {
             }
         });
     } catch (error) {
-        console.log('Error adding contact:', error);
+        logger.error('Error adding contact: %s', error);
         res.status(500).json({ error: 'Failed to add contact' });
     }
 });
@@ -1239,7 +1222,7 @@ app.delete('/api/contacts/:contactId', async (req, res) => {
 
         res.status(200).json({ message: 'Contact removed successfully' });
     } catch (error) {
-        console.log('Error removing contact:', error);
+        logger.error('Error removing contact: %s', error);
         res.status(500).json({ error: 'Failed to remove contact' });
     }
 });
@@ -1268,7 +1251,7 @@ app.delete('/api/conversations/:conversationId', async (req, res) => {
 
         res.status(200).json({ message: 'Conversation and all messages deleted successfully' });
     } catch (error) {
-        console.log('Error deleting conversation:', error);
+        logger.error('Error deleting conversation: %s', error);
         res.status(500).json({ error: 'Failed to delete conversation' });
     }
 });
@@ -1282,7 +1265,7 @@ app.get('/api/users/:userId', async (req, res) => {
         }))
         res.status(200).json(await usersData);
     } catch (error) {
-        console.log('Error', error)
+        logger.error('Get Users Error: %s', error);
     }
 })
 
@@ -1316,7 +1299,7 @@ app.put('/api/users/:userId', async (req, res) => {
         });
 
     } catch (error) {
-        console.error('Error updating user profile:', error);
+        logger.error('Error updating user profile: %s', error);
         res.status(500).json({ message: 'Internal server error' });
     }
 });
@@ -1427,7 +1410,7 @@ app.post('/api/groups', async (req, res) => {
         });
 
     } catch (error) {
-        console.error('Error creating group:', error);
+        logger.error('Error creating group: %s', error);
         res.status(500).json({ message: 'Failed to create group' });
     }
 });
@@ -1445,7 +1428,7 @@ app.get('/api/groups/:userId', async (req, res) => {
         res.status(200).json(groups);
 
     } catch (error) {
-        console.error('Error fetching groups:', error);
+        logger.error('Error fetching groups: %s', error);
         res.status(500).json({ message: 'Failed to fetch groups' });
     }
 });
@@ -1537,7 +1520,7 @@ app.post('/api/groups/:groupId/members', async (req, res) => {
         res.status(200).json(updatedGroup);
 
     } catch (error) {
-        console.error('Error adding group member:', error);
+        logger.error('Error adding group member: %s', error);
         res.status(500).json({ message: 'Failed to add member' });
     }
 });
@@ -1640,7 +1623,7 @@ app.delete('/api/groups/:groupId/members/:userId', async (req, res) => {
         res.status(200).json(updatedGroup);
 
     } catch (error) {
-        console.error('Error removing group member:', error);
+        logger.error('Error removing group member: %s', error);
         res.status(500).json({ message: 'Failed to remove member' });
     }
 });
@@ -1679,7 +1662,7 @@ app.put('/api/groups/:groupId', async (req, res) => {
         res.status(200).json(updatedGroup);
 
     } catch (error) {
-        console.error('Error updating group:', error);
+        logger.error('Error updating group: %s', error);
         res.status(500).json({ message: 'Failed to update group' });
     }
 });
@@ -1688,7 +1671,7 @@ app.put('/api/groups/:groupId', async (req, res) => {
 app.get('/api/conversations/:userId', async (req, res) => {
     try {
         const userId = req.params.userId;
-        console.log('Fetching conversations for user:', userId);
+        logger.info('Fetching conversations for user: %s', userId);
 
         // Get regular conversations
         const regularConversations = await Conversations.find({
@@ -1700,12 +1683,12 @@ app.get('/api/conversations/:userId', async (req, res) => {
             members: { $in: [userId] }
         }).populate('groupId', 'name profilePicture members').sort({ 'lastMessage.timestamp': -1, updatedAt: -1 });
 
-        console.log('Found regular conversations:', regularConversations.map(c => ({
+        logger.info('Found regular conversations: %o', regularConversations.map(c => ({
             id: c._id.toString(),
             members: c.members
         })));
 
-        console.log('Found group conversations:', groupConversations.map(c => ({
+        logger.info('Found group conversations: %o', groupConversations.map(c => ({
             id: c._id.toString(),
             groupId: c.groupId?._id?.toString(),
             groupName: c.groupId?.name
@@ -1765,10 +1748,10 @@ app.get('/api/conversations/:userId', async (req, res) => {
         // Extract the sorted conversation data
         const sortedConversationData = allConversations.map(conv => conv.data);
 
-        console.log('Final conversations result:', sortedConversationData);
+        logger.info('Final conversations result: %o', sortedConversationData);
         res.status(200).json(sortedConversationData);
     } catch (error) {
-        console.log(error, 'Error');
+        logger.error('Fetch Conversations Error: %s', error);
         res.status(500).json({ message: 'Failed to fetch conversations' });
     }
 });
@@ -1786,7 +1769,7 @@ app.post('/api/message/sync', async (req, res) => {
 
         // Skip messages with 'new' conversationId - these should have been converted to proper IDs by now
         if (conversationId === 'new') {
-            console.log(`Skipping sync for message with conversationId 'new': ${localMessageId}`);
+            logger.warn('Skipping sync for message with conversationId "new": %s', localMessageId);
             return res.status(200).json({
                 localMessageId,
                 synced: false,
@@ -1795,7 +1778,7 @@ app.post('/api/message/sync', async (req, res) => {
             });
         }
 
-        console.log(`Syncing message from localStorage: ${localMessageId} with sequence ${sequenceNumber}`);
+        logger.info('Syncing message from localStorage: %s with sequence %s', localMessageId, sequenceNumber);
 
         // Check for duplicate messages based on content, sender, timestamp, and sequence number
         // to prevent multiple syncs of the same message
@@ -1827,7 +1810,7 @@ app.post('/api/message/sync', async (req, res) => {
         }
 
         if (existingMessage) {
-            console.log(`Message already exists in MongoDB, skipping duplicate: ${localMessageId}`);
+            logger.warn('Message already exists in MongoDB, skipping duplicate: %s', localMessageId);
             return res.status(200).json({
                 messageId: existingMessage._id.toString(),
                 localMessageId,
@@ -1861,7 +1844,7 @@ app.post('/api/message/sync', async (req, res) => {
             'lastMessage.sequenceNumber': newMessage.sequenceNumber
         });
 
-        console.log(`Successfully synced message ${localMessageId} to MongoDB as ${newMessage._id} with sequence ${newMessage.sequenceNumber}`);
+        logger.info('Successfully synced message %s to MongoDB as %s with sequence %s', localMessageId, newMessage._id, newMessage.sequenceNumber);
 
         res.status(200).json({
             messageId: newMessage._id.toString(),
@@ -1872,7 +1855,7 @@ app.post('/api/message/sync', async (req, res) => {
         });
 
     } catch (error) {
-        console.error('Error syncing message:', error);
+        logger.error('Error syncing message: %s', error);
         res.status(500).json({ error: 'Failed to sync message to MongoDB' });
     }
 });
@@ -1887,7 +1870,7 @@ app.put('/api/message/:messageId/sync', async (req, res) => {
             return res.status(400).json({ error: 'Missing required fields' });
         }
 
-        console.log(`Syncing message update: ${messageId}`);
+        logger.info('Syncing message update: %s', messageId);
 
         // Update message in MongoDB
         const updatedMessage = await Messages.findByIdAndUpdate(
@@ -1900,7 +1883,7 @@ app.put('/api/message/:messageId/sync', async (req, res) => {
             return res.status(404).json({ error: 'Message not found' });
         }
 
-        console.log(`Successfully synced message update ${messageId}`);
+        logger.info('Successfully synced message update %s', messageId);
 
         res.status(200).json({
             messageId: updatedMessage._id.toString(),
@@ -1909,7 +1892,7 @@ app.put('/api/message/:messageId/sync', async (req, res) => {
         });
 
     } catch (error) {
-        console.error('Error syncing message update:', error);
+        logger.error('Error syncing message update: %s', error);
         res.status(500).json({ error: 'Failed to sync message update to MongoDB' });
     }
 });
@@ -1924,7 +1907,7 @@ app.delete('/api/message/:messageId/sync', async (req, res) => {
             return res.status(400).json({ error: 'Message ID required' });
         }
 
-        console.log(`Syncing message deletion: ${messageId}`);
+        logger.info('Syncing message deletion: %s', messageId);
 
         // Delete message from MongoDB
         const deletedMessage = await Messages.findByIdAndDelete(messageId);
@@ -1950,7 +1933,7 @@ app.delete('/api/message/:messageId/sync', async (req, res) => {
             }
         }
 
-        console.log(`Successfully synced message deletion ${messageId}`);
+        logger.info('Successfully synced message deletion %s', messageId);
 
         res.status(200).json({
             messageId,
@@ -1959,7 +1942,7 @@ app.delete('/api/message/:messageId/sync', async (req, res) => {
         });
 
     } catch (error) {
-        console.error('Error syncing message deletion:', error);
+        logger.error('Error syncing message deletion: %s', error);
         res.status(500).json({ error: 'Failed to sync message deletion to MongoDB' });
     }
 });
@@ -1976,7 +1959,7 @@ app.get('/api/sync/config', (req, res) => {
 });
 
 server.listen(PORT, '0.0.0.0', async () => {
-    console.log("HTTP and Socket.IO server listening on port : " + PORT);
+    logger.info('HTTP and Socket.IO server listening on port : %s', PORT);
 
     // Initialize Redis service for horizontal scaling
     try {
@@ -1987,7 +1970,7 @@ server.listen(PORT, '0.0.0.0', async () => {
             messageDeliveryService.handleCrossServerEvent(eventData);
         });
 
-        console.log('Message ordering and scaling services initialized');
+        logger.info('Message ordering and scaling services initialized');
 
         // Start periodic queue cleanup (every 30 minutes)
         setInterval(() => {
@@ -1995,7 +1978,7 @@ server.listen(PORT, '0.0.0.0', async () => {
         }, 30 * 60 * 1000);
 
     } catch (error) {
-        console.error('Failed to initialize Redis services:', error);
-        console.log('Running in single-server mode');
+        logger.error('Failed to initialize Redis services: %s', error);
+        logger.warn('Running in single-server mode');
     }
 })

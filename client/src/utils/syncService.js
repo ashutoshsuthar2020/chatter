@@ -1,6 +1,7 @@
 // Background sync service for MongoDB updates
 import MessageStorage from './messageStorage';
 import config from '../config';
+import logger from '../logger';
 
 export class SyncService {
     constructor() {
@@ -11,13 +12,13 @@ export class SyncService {
         // Listen for online/offline events
         window.addEventListener('online', () => {
             this.isOnline = true;
-            console.log('Connection restored, resuming sync...');
+            logger.info('Connection restored, resuming sync...');
             this.performSync();
         });
 
         window.addEventListener('offline', () => {
             this.isOnline = false;
-            console.log('Connection lost, sync paused...');
+            logger.warn('Connection lost, sync paused...');
         });
     }
 
@@ -26,7 +27,7 @@ export class SyncService {
         this.stopPeriodicSync(); // Clear any existing interval
 
         const intervalMs = intervalMinutes * 60 * 1000; // Convert to milliseconds
-        console.log(`Starting periodic sync every ${intervalMinutes} minutes`);
+        logger.info(`Starting periodic sync every ${intervalMinutes} minutes`);
 
         // Perform initial sync
         this.performSync();
@@ -42,25 +43,25 @@ export class SyncService {
         if (this.syncInterval) {
             clearInterval(this.syncInterval);
             this.syncInterval = null;
-            console.log('Periodic sync stopped');
+            logger.info('Periodic sync stopped');
         }
     }
 
     // Perform sync operation
     async performSync() {
         if (!this.isOnline || this.isSyncing) {
-            console.log('Sync skipped: offline or already syncing');
+            logger.info('Sync skipped: offline or already syncing');
             return;
         }
 
         this.isSyncing = true;
-        console.log('Starting sync process...');
+        logger.info('Starting sync process...');
 
         try {
             const syncQueue = MessageStorage.getSyncQueue();
             const unsyncedCount = MessageStorage.getUnsyncedCount();
 
-            console.log(`Syncing ${syncQueue.length} operations, ${unsyncedCount} unsynced messages`);
+            logger.info(`Syncing ${syncQueue.length} operations, ${unsyncedCount} unsynced messages`);
 
             // Process sync queue
             for (const item of syncQueue) {
@@ -68,7 +69,7 @@ export class SyncService {
                     await this.processSyncItem(item);
                     MessageStorage.removeSyncQueueItem(item.id);
                 } catch (error) {
-                    console.error('Error processing sync item:', item, error);
+                    logger.error('Error processing sync item:', item, error);
                     // Don't remove failed items, they'll be retried next sync
                 }
             }
@@ -76,7 +77,7 @@ export class SyncService {
             // Update last sync time
             MessageStorage.setLastSyncTime();
 
-            console.log('Sync completed successfully');
+            logger.info('Sync completed successfully');
 
             // Emit sync completed event for UI updates
             window.dispatchEvent(new CustomEvent('syncCompleted', {
@@ -87,7 +88,7 @@ export class SyncService {
             }));
 
         } catch (error) {
-            console.error('Sync process failed:', error);
+            logger.error('Sync process failed:', error);
         } finally {
             this.isSyncing = false;
         }
@@ -138,13 +139,13 @@ export class SyncService {
                     message.messageId,
                     result.messageId
                 );
-                console.log(`Synced message ${message.messageId} to server as ${result.messageId}`);
+                logger.info(`Synced message ${message.messageId} to server as ${result.messageId}`);
                 return result;
             } else {
                 throw new Error(`Failed to sync message: ${response.status}`);
             }
         } catch (error) {
-            console.error('Error syncing create message:', error);
+            logger.error('Error syncing create message:', error);
             throw error;
         }
     }
@@ -164,13 +165,13 @@ export class SyncService {
             });
 
             if (response.ok) {
-                console.log(`Synced message update ${messageId}`);
+                logger.info(`Synced message update ${messageId}`);
                 return await response.json();
             } else {
                 throw new Error(`Failed to sync message update: ${response.status}`);
             }
         } catch (error) {
-            console.error('Error syncing update message:', error);
+            logger.error('Error syncing update message:', error);
             throw error;
         }
     }
@@ -189,20 +190,20 @@ export class SyncService {
             });
 
             if (response.ok) {
-                console.log(`Synced message deletion ${messageId}`);
+                logger.info(`Synced message deletion ${messageId}`);
                 return await response.json();
             } else {
                 throw new Error(`Failed to sync message deletion: ${response.status}`);
             }
         } catch (error) {
-            console.error('Error syncing delete message:', error);
+            logger.error('Error syncing delete message:', error);
             throw error;
         }
     }
 
     // Force immediate sync
     async forcSync() {
-        console.log('Force sync requested...');
+        logger.info('Force sync requested...');
         await this.performSync();
     }
 

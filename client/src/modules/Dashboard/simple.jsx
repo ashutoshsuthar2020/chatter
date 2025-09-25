@@ -1,6 +1,7 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { io } from 'socket.io-client';
 import config from '../../config';
+import logger from '../../logger';
 
 const SimpleDashboard = () => {
     const [user, setUser] = useState(null);
@@ -24,12 +25,12 @@ const SimpleDashboard = () => {
             setSocket(newSocket);
 
             newSocket.on('connect', () => {
-                console.log('✅ Connected to socket');
+                logger.info('✅ Connected to socket');
                 newSocket.emit('register', loggedUser.id);
             });
 
             newSocket.on('newMessage', (data) => {
-                console.log('💬 New message received:', data);
+                logger.info('💬 New message received:', data);
                 if (currentReceiver &&
                     ((data.senderId === currentReceiver.id && data.receiverId === loggedUser.id) ||
                         (data.senderId === loggedUser.id && data.receiverId === currentReceiver.id))) {

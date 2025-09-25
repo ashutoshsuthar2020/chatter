@@ -21,7 +21,8 @@ const authenticateJWT = async (req, res, next) => {
         req.user = user;
         next();
     } catch (error) {
-        console.error('JWT Authentication error:', error);
+        const logger = require('../logger');
+        logger.error('JWT Authentication error: %s', error);
         return res.status(401).json({ message: 'Invalid token' });
     }
 };
