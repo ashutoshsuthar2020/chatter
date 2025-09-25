@@ -1,5 +1,5 @@
 # Chatter - Real-time Chat Application
-Access the chat app at: [http://](http://212.2.254.161:3000/)
+Access the chat app at: [chat-app](http://212.2.254.161:3000/)
 
 Chatter is a scalable real-time chat app built with React, Node.js, MongoDB, and Redis.
 
