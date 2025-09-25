@@ -1,130 +1,15 @@
-# Chatter - Enterprise Real-time Chat Application
+# Chatter - Real-time Chat Application
+Access the chat app at: [http://](http://212.2.254.161:3000/)
 
-A horizontally-scalable real-time chat application with enterprise-grade message ordering, zero-duplication guarantees, and Redis-based distributed architecture. Built with React, Node.js, Socket.IO, MongoDB, and Redis.
+Chatter is a scalable real-time chat app built with React, Node.js, MongoDB, and Redis.
 
-## ✨ Enterprise Features
+## Highlights
+- Secure phone-based authentication
+- Real-time messaging and contact management
+- Distributed, cloud-native architecture
 
-### 🔐 Simple & Secure Authentication
-- **Phone-Based Authentication** - Simple registration and login with phone numbers only
-- **User Profiles** - Full name, phone number, profile pictures, and bio
-- **Auto-Contact Management** - Automatic bidirectional contact addition when messaging
-
-### 💬 Enterprise Messaging System
-- **Zero Message Duplication** - Multi-layer duplicate prevention system
-- **Guaranteed Message Ordering** - Redis-based sequence ordering with conversation locks
-- **Horizontal Scaling** - Redis pub/sub architecture for multi-server deployment
-- **Offline User Queuing** - Message queuing for disconnected users
-- **Cross-Server Delivery** - Seamless messaging across distributed server instances
-
-### 🏗️ Distributed Architecture
-- **Redis-Based Scaling** - Enterprise-ready horizontal scaling infrastructure
-- **localStorage-First** - Client-side caching with background MongoDB synchronization
-- **Conversation Locking** - Distributed locks ensuring message consistency
-- **Health Monitoring** - Production-ready health check endpoints
-
-## ✨ Key Features
-
-### 💬 Real-time Messaging
-- **Instant Communication** - Live chat powered by Socket.IO
-- **Message Persistence** - All messages stored in MongoDB
-- **Conversation Management** - Organized chat history
-
-### 👥 Intelligent Contact Management
-- **Auto-Contact Addition** - Automatic contact creation when users message each other
-- **Conversation Consistency** - Seamless contact-to-chat mapping across UI sections
-- **Contact Validation** - Prevents duplicate and invalid contacts
-- **Bidirectional Management** - Two-way contact relationships
-- **Profile Integration** - Click on contact avatars for detailed profiles
-
-### 👤 Enhanced User Experience
-- **Profile Customization** - Update profile photo and personal bio
-- **Real-time Status** - Online/offline indicators with presence management
-- **Conversation Management** - Advanced chat history and organization
-- **Group Chat Support** - Full group creation and member management
-
-### 🎨 Modern UI/UX
-- **Clean Design** - Modern interface with Tailwind CSS
-- **Responsive Layout** - Works on desktop and mobile
-- **Dark/Light Themes** - Professional color schemes
-- **Smooth Animations** - Polished user interactions
-
-## 🚀 Quick Start
-
-## 🚀 Quick Start
-
-### Prerequisites
-- Node.js (v18 or higher)
-- MongoDB (running locally or cloud instance)
-- Redis (for horizontal scaling and message ordering)
-- Docker (optional, for containerized deployment)
-
-### Installation Options
-
-#### Option 1: Full Enterprise Setup (Recommended)
-1. **Clone and install dependencies**
-   ```bash
-   # Install server dependencies
-   cd server && npm install
-   
-   # Install client dependencies  
-   cd ../client && npm install
-   ```
-
-2. **Start Required Services**
-   ```bash
-   # Start MongoDB
-   mongod
-   
-   # Start Redis (required for scaling)
-   redis-server
-   ```
-
-3. **Environment Configuration**
-   ```bash
-   # Server environment
-   cd server
-   cp .env.example .env  # Create from template
-   # Update: MONGODB_URI, REDIS_URL, JWT_SECRET, SERVER_ID
-   
-   # Client environment
-   cd ../client
-   cp .env.example .env  # Create from template
-   # Update REACT_APP_API_URL
-   ```
-
-4. **Start the application**
-   ```bash
-   # Terminal 1: Start server
-   cd server && npm start
-   
-   # Terminal 2: Start client  
-   cd client && npm start
-   ```
-
-#### Option 2: Horizontal Scaling Setup
-```bash
-# Start multiple server instances for load balancing
-# Terminal 1: Server instance 1
-cd server && SERVER_ID="server-1" PORT=8000 npm start
-
-# Terminal 2: Server instance 2  
-cd server && SERVER_ID="server-2" PORT=8001 npm start
-
-# Terminal 3: Client
-cd client && npm start
-```
-
-#### Option 3: Development Mode
-```bash
-# Start required services
-mongod & redis-server &
-
-# Start server in development mode
-cd server && npm run dev
-
-# Start client
-cd client && npm start
-```
+## Deployment & Usage
+All setup and run instructions are in [DEPLOYMENT_GUIDE.md](./DEPLOYMENT_GUIDE.md).
 
 ## 🏗️ Enterprise Architecture
 
@@ -140,7 +25,7 @@ cd client && npm start
 ```
 ┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
 │   React Client  │◄──►│  Load Balancer  │◄──►│  Server Farm    │
-│   (Port 3000)   │    │  (HAProxy/Nginx) │    │ (server-1, -2,  │
+│   (Port 3000)   │    │  (HAProxy/Nginx)│    │ (server-1, -2,  │
 │                 │    │                 │    │    -3, etc.)    │
 └─────────────────┘    └─────────────────┘    └─────────────────┘
                                                         │
@@ -275,23 +160,6 @@ chatter/
 
 ## 🛠️ Development
 
-### Available Scripts
-
-#### Server Scripts
-```bash
-npm start          # Start production server
-npm run dev        # Start development server with nodemon
-npm test           # Run tests (if configured)
-```
-
-#### Client Scripts  
-```bash
-npm start          # Start development server
-npm run build      # Build for production
-npm test           # Run tests
-npm run eject      # Eject from Create React App
-```
-
 ### API Endpoints
 
 #### Authentication & Users
@@ -358,82 +226,6 @@ Chatter supports secure HTTPS and WSS (WebSocket Secure) for production deployme
 5. **Rebuild and Redeploy**
    - Always rebuild the client after changing `.env`.
    - Deploy updated images and Helm charts.
-
----
-
-## 🐛 Enterprise Troubleshooting
-
-### Common Issues
-
-1. **Redis Connection Failed**
-   ```bash
-   # Check if Redis is running
-   redis-cli ping  # Should return "PONG"
-   
-   # Start Redis if needed
-   redis-server
-   ```
-
-2. **Message Ordering Issues**
-   ```bash
-   # Check Redis sequence counters
-   redis-cli keys "seq:*"
-   redis-cli get "seq:conversation_id"
-   ```
-
-3. **Cross-Server Communication Problems**
-   ```bash
-   # Monitor Redis pub/sub channels
-   redis-cli monitor
-   redis-cli subscribe broadcast
-   ```
-
-4. **MongoDB Connection Failed**
-   ```bash
-   # Check if MongoDB is running
-   sudo systemctl status mongod  # Linux
-   brew services list | grep mongodb  # macOS
-   ```
-
-5. **Horizontal Scaling Issues**
-   - Verify each server has unique SERVER_ID
-   - Check Redis connectivity from all servers
-   - Ensure load balancer forwards WebSocket connections
-
-6. **Message Duplication Problems**
-   - Check localStorage for duplicate message IDs
-   - Verify sequence numbers in MongoDB
-   - Monitor duplicate prevention logs
-
-### Production Monitoring
-
-```bash
-# Check Redis health
-redis-cli info replication
-
-# Monitor MongoDB performance  
-mongosh --eval "db.runCommand({serverStatus: 1})"
-
-# Check server logs
-tail -f server.log | grep "ERROR\|duplicate\|order"
-
-# Test API endpoints
-curl http://localhost:8000/health
-curl http://localhost:8000/api/redis/status
-```
-
-### Useful Commands
-
-```bash
-# Check running processes
-ps aux | grep node
-
-# View MongoDB logs
-tail -f /var/log/mongodb/mongod.log
-
-# Test API endpoints
-curl http://localhost:8000/health
-```
 
 ## 📚 Additional Documentation
 

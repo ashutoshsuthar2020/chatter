@@ -2,6 +2,6 @@ client:
   image:
     repository: ashu001/client
     tag: latest
-    pullPolicy: IfNotPresent
+    pullPolicy: Always
   port: 3000
-  replicaCount: 1
+  ingressDomain: "http://212.2.254.23:8000"
