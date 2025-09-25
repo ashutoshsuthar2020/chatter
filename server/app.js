@@ -6,6 +6,8 @@ const PORT = process.env.PORT || 8000;
 const jwt = require('jsonwebtoken');
 const cors = require('cors');
 
+
+const bcrypt = require('bcryptjs');
 // Import services
 const redisService = require('./services/redisService');
 const messageQueueService = require('./services/messageQueueService');
@@ -98,37 +100,21 @@ app.use((req, res, next) => {
 const server = require('http').createServer(app);
 const io = require('socket.io')(server, {
     cors: {
-        origin: function (origin, callback) {
-            logger.info('Socket.IO CORS check for origin: %s', origin);
-
-            if (!origin) {
-                logger.info('Socket.IO CORS: Allowing request with no origin');
-                return callback(null, true);
-            }
-
-            const isDevelopment = process.env.NODE_ENV !== 'production';
-            const allowedOrigins = [
-                'http://localhost:3000',
-                'http://127.0.0.1:3000',
-                'http://0.0.0.0:3000'
-            ];
-
-            if (isDevelopment) {
-                logger.warn('Socket.IO CORS: Development mode - allowing origin: %s', origin);
-                return callback(null, true);
-            }
-
-            if (allowedOrigins.includes(origin)) {
-                logger.info('Socket.IO CORS: Allowing production origin: %s', origin);
-                return callback(null, true);
-            }
-
-            logger.error('Socket.IO CORS: BLOCKING origin in production: %s', origin);
-            return callback(new Error('Not allowed by CORS'));
-        },
+        origin: '*', // Allow all origins for testing; restrict in production if needed
         methods: ['GET', 'POST'],
         credentials: true
     }
+});
+
+
+// Socket.IO Redis adapter for multi-server scaling
+const { createAdapter } = require('@socket.io/redis-adapter');
+const { createClient } = require('redis');
+const pubClient = createClient({ url: process.env.REDIS_URL || 'redis://my-redis-master:6379' });
+const subClient = pubClient.duplicate();
+Promise.all([pubClient.connect(), subClient.connect()]).then(() => {
+    io.adapter(createAdapter(pubClient, subClient));
+    logger.info('Socket.IO Redis adapter enabled');
 });
 
 // Initialize message delivery service

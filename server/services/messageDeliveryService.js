@@ -174,17 +174,19 @@ class MessageDeliveryService {
     async sendMessageWithOrdering(messageData) {
         const { conversationId, senderId, message, isGroup, receiverId, groupMembers } = messageData;
 
-        console.log(`Processing ordered message for conversation ${conversationId}`);
+        logger.info(`[MessageDelivery] Processing ordered message for conversation ${conversationId}`);
 
         // Step 1: Acquire lock for conversation to ensure ordering
         const lockResult = await redisService.acquireMessageLock(conversationId, 10000); // 10 second timeout
 
         if (!lockResult.success) {
+            logger.error(`[MessageDelivery] Could not acquire message lock for conversation ${conversationId}`);
             throw new Error('Could not acquire message lock - another message is being processed');
         }
 
         try {
             // Step 2: Get sequence number for this message
+            logger.info(`[MessageDelivery] Acquired lock for conversation ${conversationId}`);
             const sequenceNumber = await redisService.getNextSequenceNumber(conversationId);
 
             // Step 3: Save to MongoDB first for persistence
@@ -194,8 +196,8 @@ class MessageDeliveryService {
                 message,
                 sequenceNumber
             });
-
             await newMessage.save();
+            logger.info(`[MessageDelivery] Message saved to MongoDB: ${newMessage._id}`);
 
             // Step 4: Prepare message data with ordering info
             const orderedMessageData = {
@@ -215,7 +217,7 @@ class MessageDeliveryService {
                 recipientIds = groupMembers.filter(id => id !== senderId);
 
                 // Auto-add contacts for all group members
-                console.log(`Auto-adding contacts for group message from sender ${senderId}`);
+                logger.info(`[MessageDelivery] Auto-adding contacts for group message from sender ${senderId}`);
                 for (const memberId of groupMembers) {
                     const memberIdString = memberId.toString();
                     if (memberIdString !== senderId) {
@@ -235,7 +237,7 @@ class MessageDeliveryService {
                 recipientIds = [receiverId];
 
                 // Auto-add contacts for both sender and receiver for regular messages
-                console.log(`Auto-adding contacts for regular message: sender=${senderId}, receiver=${receiverId}`);
+                logger.info(`[MessageDelivery] Auto-adding contacts for regular message: sender=${senderId}, receiver=${receiverId}`);
                 await this.autoAddContact(receiverId, senderId); // Add sender to receiver's contacts
                 await this.autoAddContact(senderId, receiverId); // Add receiver to sender's contacts
 
@@ -253,11 +255,14 @@ class MessageDeliveryService {
 
             // Step 7: Deliver to online users and queue for offline users
             const deliveryResults = await this.deliverToRecipients(orderedMessageData, recipientIds);
+            logger.info(`[MessageDelivery] Delivering message ${orderedMessageData.messageId} to recipients: ${recipientIds.join(',')}`);
 
             // Step 8: Update conversation lists for all recipients
             await this.updateConversationLists(recipientIds, conversationId, isGroup);
+            logger.info(`[MessageDelivery] Updated conversation lists for recipients: ${recipientIds.join(',')}`);
 
             console.log(`Message ${orderedMessageData.messageId} delivered with sequence ${sequenceNumber}`);
+            logger.info(`[MessageDelivery] Message ${orderedMessageData.messageId} delivered with sequence ${sequenceNumber}`);
 
             return {
                 success: true,
@@ -268,6 +273,7 @@ class MessageDeliveryService {
 
         } finally {
             // Step 9: Always release the lock
+            logger.info(`[MessageDelivery] Releasing lock for conversation ${conversationId}`);
             await redisService.releaseLock(conversationId, lockResult.lockId);
         }
     }
@@ -279,15 +285,16 @@ class MessageDeliveryService {
         for (const recipientId of recipientIds) {
             try {
                 const userLocation = await this.getUserLocation(recipientId);
-
                 if (userLocation) {
                     // User is online
                     if (userLocation.isLocal) {
                         // User is on this server
+                        logger.info(`[MessageDelivery] Delivering to local user ${recipientId}`);
                         this.deliverToLocalUser(recipientId, messageData, userLocation.socketData);
                         deliveryResults.push({ userId: recipientId, status: 'delivered_local' });
                     } else {
                         // User is on another server - broadcast via Redis
+                        logger.info(`[MessageDelivery] Delivering to remote user ${recipientId} on server ${userLocation.serverId}`);
                         await redisService.broadcastMessage('deliver_message', {
                             userId: recipientId,
                             messageData,
@@ -297,11 +304,12 @@ class MessageDeliveryService {
                     }
                 } else {
                     // User is offline - add to queue
+                    logger.info(`[MessageDelivery] Queuing message for offline user ${recipientId}`);
                     await redisService.queueMessageForUser(recipientId, messageData);
                     deliveryResults.push({ userId: recipientId, status: 'queued' });
                 }
             } catch (error) {
-                console.error(`Error delivering message to user ${recipientId}:`, error);
+                logger.error(`[MessageDelivery] Error delivering message to user ${recipientId}: ${error.message}`);
                 deliveryResults.push({ userId: recipientId, status: 'error', error: error.message });
             }
         }
@@ -313,7 +321,7 @@ class MessageDeliveryService {
     deliverToLocalUser(userId, messageData, socketData) {
         if (socketData && socketData.socketId) {
             this.io.to(socketData.socketId).emit('getMessage', messageData);
-            console.log(`Delivered message to local user ${userId} via socket ${socketData.socketId}`);
+            logger.info(`[MessageDelivery] Delivered message to local user ${userId} via socket ${socketData.socketId}`);
         }
     }
 
