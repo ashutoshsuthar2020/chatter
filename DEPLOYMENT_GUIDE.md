@@ -12,8 +12,8 @@
   - Set `pullPolicy: Always` for latest tag
   - Set `client.ingressDomain` to backend URL
 4. **Deploy/upgrade with Helm:**
-  - `helm upgrade --install chat-server ./helm/server -n chatter`
-  - `helm upgrade --install chat-client ./helm/client -n chatter`
+  - `helm upgrade --install chat-server ./helm/server -n default`
+  - `helm upgrade --install chat-client ./helm/client -n default`
 5. **Verify services:**
   - `kubectl get svc -n chatter` (check for EXTERNAL-IP)
 6. **Check logs and connectivity:**

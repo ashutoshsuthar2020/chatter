@@ -16,7 +16,8 @@ class MessageDeliveryService {
     // Helper function to automatically add contacts when receiving messages
     async autoAddContact(userId, contactUserId) {
         try {
-            console.log(`Attempting to auto-add contact: userId=${userId}, contactUserId=${contactUserId}`);
+            const logger = require('../logger');
+            logger.info('Attempting to auto-add contact: userId=%s, contactUserId=%s', userId, contactUserId);
 
             // Check if contact already exists
             const existingContact = await Contacts.findOne({
@@ -25,14 +26,14 @@ class MessageDeliveryService {
             });
 
             if (existingContact) {
-                console.log(`Contact already exists between ${userId} and ${contactUserId}`);
+                logger.info('Contact already exists between %s and %s', userId, contactUserId);
                 return null; // Contact already exists
             }
 
             // Get contact user data
             const contactUser = await Users.findById(contactUserId);
             if (!contactUser) {
-                console.log(`Contact user not found: ${contactUserId}`);
+                logger.warn('Contact user not found: %s', contactUserId);
                 return null;
             }
 

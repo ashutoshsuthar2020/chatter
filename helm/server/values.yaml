@@ -15,10 +15,11 @@ server:
   image:
     repository: ashu001/server
     tag: latest
-    pullPolicy: IfNotPresent
+    pullPolicy: Always
   port: 8000
   replicaCount: 1
   mongodbUri: ""
   redisUrl: "redis://my-redis-master:6379"
   jwtSecretKey: "THIS_IS_A_JWT_SECRET_KEY"
   serverId: "{{ .Pod.Name }}"
+  nodeEnv: "development"

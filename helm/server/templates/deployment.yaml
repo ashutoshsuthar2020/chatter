@@ -24,11 +24,15 @@ spec:
             - name: PORT
               value: "8000"
             - name: NODE_ENV
-              value: "development"
+              value: {{ .Values.server.nodeEnv | default "development" | quote }}
             - name: MONGODB_URI
               value: {{ .Values.server.mongodbUri | default "mongodb://chat-server-mongodb:27017/chatter" | quote }}
             - name: REDIS_URL
               value: {{ .Values.server.redisUrl | default "redis://chat-server-redis-master:6379" | quote }}
+            - name: JWT_SECRET_KEY
+              value: {{ .Values.server.jwtSecretKey | quote }}
+            - name: SERVER_ID
+              value: {{ .Values.server.serverId | quote }}
           resources:
             requests:
               memory: "256Mi"

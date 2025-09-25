@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import config from '../../config';
+import logger from '../../logger';
 
 const AddContactModal = ({ user, contacts, onClose, onContactAdded }) => {
     const [phoneNumber, setPhoneNumber] = useState('');
@@ -44,8 +45,8 @@ const AddContactModal = ({ user, contacts, onClose, onContactAdded }) => {
             onContactAdded(data.contact);
             onClose();
 
-        } catch (error) {
-            console.error('Add contact error:', error);
+            logger.error('Add contact error:', error);
+            setError(error.message || 'Failed to add contact');
             setError(error.message || 'Failed to add contact');
         } finally {
             setLoading(false);
