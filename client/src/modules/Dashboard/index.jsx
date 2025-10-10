@@ -14,7 +14,16 @@ import MessageStorage from '../../utils/messageStorage'
 import syncService from '../../utils/syncService'
 
 const Dashboard = () => {
-    const [user, setUser] = useState(JSON.parse(localStorage.getItem('user:detail')));
+    const getUserFromStorage = () => {
+        try {
+            const value = localStorage.getItem('user:detail');
+            if (!value) return null;
+            return JSON.parse(value);
+        } catch (e) {
+            return null;
+        }
+    };
+    const [user, setUser] = useState(getUserFromStorage());
     const [conversations, setConversations] = useState([]);
     const [messages, setMessages] = useState({});
     const [message, setMessage] = useState('');
@@ -233,12 +242,20 @@ const Dashboard = () => {
             console.log('Adding user to socket:', user?.id);
 
             socket.on('getUsers', users => {
-                console.log('Active users updated:', users);
+                console.log('Active users updated (legacy):', users);
+                setActiveUsers(users);
+            });
+
+            // Listen for NATS-based active users update
+            socket.on('activeUsers', users => {
+                console.log('[Socket] Received activeUsers event:', users);
                 setActiveUsers(users);
             });
 
             socket.on('getMessage', data => {
                 console.log('Received message:', data);
+                console.log('Current messages state:', messages);
+                console.log('Is current conversation:', messages?.conversationId === data.conversationId);
 
                 // Save received message to localStorage immediately with sequence number
                 const messageData = {
@@ -295,6 +312,7 @@ const Dashboard = () => {
                 setMessages(prev => {
                     // Check if this message is for the current active conversation
                     if (prev.conversationId && data.conversationId === prev.conversationId) {
+                        console.log('Updating messages state for real-time message:', data);
                         // Check if message already exists to avoid duplicates
                         // Use messageId if available, otherwise fall back to content and sender matching
                         const messageExists = prev.messages?.some(msg => {
@@ -461,6 +479,46 @@ const Dashboard = () => {
                 }
             });
 
+            // Listen for new conversation creation (e.g., when a contact is added and a message is sent)
+            socket.on('conversationCreated', (data) => {
+                console.log('New conversation created:', data);
+                // Optionally, fetch updated conversations from server or update state
+                // For now, trigger a refresh of the conversations list
+                if (window.refreshConversations) {
+                    setTimeout(() => {
+                        window.refreshConversations();
+                    }, 500);
+                }
+            });
+
+            // Listen for new contact message (when a message is received from a new contact)
+            socket.on('newContactMessage', (data) => {
+                console.log('New contact message received:', data);
+                // Optionally, refresh contacts and conversations
+                if (window.refreshContacts) {
+                    setTimeout(() => {
+                        window.refreshContacts();
+                    }, 500);
+                }
+                if (window.refreshConversations) {
+                    setTimeout(() => {
+                        window.refreshConversations();
+                    }, 500);
+                }
+            });
+
+            // Listen for conversation updates (e.g., new message in a conversation)
+            socket.on('conversationUpdated', (data) => {
+                console.log('Conversation updated:', data);
+                // Optionally, update the specific conversation in state
+                // For now, trigger a refresh of the conversations list
+                if (window.refreshConversations) {
+                    setTimeout(() => {
+                        window.refreshConversations();
+                    }, 500);
+                }
+            });
+
             // Cleanup function to remove event listeners
             return () => {
                 socket.off('connect');
@@ -517,7 +575,13 @@ const Dashboard = () => {
     }, [showDropdown]);
 
     useEffect(() => {
-        const loggedInUser = JSON.parse(localStorage.getItem('user:detail'));
+        let loggedInUser = null;
+        try {
+            const value = localStorage.getItem('user:detail');
+            if (value) loggedInUser = JSON.parse(value);
+        } catch (e) {
+            loggedInUser = null;
+        }
         const fetchConversations = async () => {
             const res = await fetch(`${config.API_URL}/api/conversations/${loggedInUser?.id}`, {
                 method: 'GET',
@@ -1192,95 +1256,81 @@ const Dashboard = () => {
                                 </div>
                                 {conversations.length > 0 ? (
                                     <div className="space-y-1">
-                                        {conversations.map((conversation) => {
-                                            // Handle both regular and group conversations
-                                            if (conversation.isGroup) {
-                                                // Group conversation
-                                                const { conversationId, group } = conversation;
-                                                const isActive = messages?.isGroup && messages?.groupId === group.id;
-
-                                                return (
-                                                    <div
-                                                        key={conversationId}
-                                                        className={`flex items-center p-3 rounded-xl cursor-pointer transition-colors ${isActive ? 'bg-primary-50 border border-primary-200' : 'hover:bg-neutral-100'
-                                                            }`}
-                                                        onClick={() => {
-                                                            // Find the group in groups list to get full group data
-                                                            const groupConversation = conversations.find(conv =>
-                                                                conv.isGroup && conv.group && conv.group.id === group.id
-                                                            );
-                                                            if (groupConversation) {
-                                                                fetchGroupMessages(conversationId, group);
-                                                            }
-                                                        }}
-                                                    >
-                                                        <div className="relative">
-                                                            <div className="w-12 h-12 bg-primary-100 rounded-full flex items-center justify-center">
-                                                                {group.profilePicture ? (
-                                                                    <img src={group.profilePicture} className="w-12 h-12 rounded-full object-cover" alt="Group" />
-                                                                ) : (
-                                                                    <svg className="w-6 h-6 text-primary-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
-                                                                    </svg>
-                                                                )}
+                                        {contacts.map((contact) => {
+                                            const conversation = conversations.find(
+                                                conv => !conv.isGroup && conv.user?.receiverId === contact.user?.receiverId
+                                            );
+                                            if (!conversation) return null;
+                                            const { conversationId, user: conversationUser } = conversation;
+                                            const isActive = messages?.receiver?.receiverId === conversationUser?.receiverId;
+                                            // Debug log for mapping
+                                            console.log('[ContactList] activeUsers:', activeUsers);
+                                            console.log('[ContactList] Checking contact receiverId:', conversationUser?.receiverId);
+                                            const isOnline = activeUsers.find(x => x.userId === conversationUser?.receiverId);
+                                            console.log(`[ContactList] Contact ${conversationUser?.receiverId} online:`, !!isOnline);
+                                            return (
+                                                <div
+                                                    key={conversationId}
+                                                    className={`flex items-center p-3 rounded-xl cursor-pointer transition-colors ${isActive ? 'bg-primary-50 border border-primary-200' : 'hover:bg-neutral-100'}`}
+                                                    onClick={() => fetchMessages(conversationId, conversationUser)}
+                                                >
+                                                    <div className="relative">
+                                                        <img src={contact.user?.picture || conversationUser?.picture || Avatar} className="w-12 h-12 rounded-full object-cover" alt="User" />
+                                                        {isOnline && (
+                                                            <div className="absolute bottom-0 right-0 w-3 h-3 bg-accent rounded-full border-2 border-white"></div>
+                                                        )}
+                                                        {/* Unread count badge for regular conversations */}
+                                                        {unreadCounts[conversationId] > 0 && (
+                                                            <div className="absolute -top-1 -right-1 w-5 h-5 bg-red-500 text-white text-xs rounded-full flex items-center justify-center font-bold">
+                                                                {unreadCounts[conversationId] > 99 ? '99+' : unreadCounts[conversationId]}
                                                             </div>
-                                                            {/* Unread count badge for groups */}
-                                                            {unreadCounts[conversation.conversationId] > 0 && (
-                                                                <div className="absolute -top-1 -right-1 w-5 h-5 bg-red-500 text-white text-xs rounded-full flex items-center justify-center font-bold">
-                                                                    {unreadCounts[conversation.conversationId] > 99 ? '99+' : unreadCounts[conversation.conversationId]}
-                                                                </div>
-                                                            )}
-                                                        </div>
-                                                        <div className="ml-3 flex-1 min-w-0">
-                                                            <h3 className={`text-sm font-medium truncate ${isActive ? 'text-primary-700' : 'text-neutral-900'}`}>
-                                                                {group.name}
-                                                            </h3>
-                                                            <p className={`text-xs truncate ${isActive ? 'text-primary-600' : 'text-neutral-500'}`}>
-                                                                {conversation.lastMessage ? conversation.lastMessage.message : 'No messages yet'} • {group.memberCount} member{group.memberCount !== 1 ? 's' : ''}
-                                                            </p>
-                                                        </div>
+                                                        )}
                                                     </div>
-                                                );
-                                            } else {
-                                                // Regular conversation
-                                                const { conversationId, user: conversationUser } = conversation;
-                                                const isActive = messages?.receiver?.receiverId === conversationUser?.receiverId;
-                                                const isOnline = activeUsers.find(x => x.userId === conversationUser?.receiverId);
-
-                                                return (
-                                                    <div
-                                                        key={conversationId}
-                                                        className={`flex items-center p-3 rounded-xl cursor-pointer transition-colors ${isActive ? 'bg-primary-50 border border-primary-200' : 'hover:bg-neutral-100'
-                                                            }`}
-                                                        onClick={() => fetchMessages(conversationId, conversationUser)}
-                                                    >
-                                                        <div className="relative">
-                                                            <img src={(() => {
-                                                                // Get the most current profile picture from contacts list
-                                                                const currentContact = contacts.find(c => c.user?.receiverId === conversationUser?.receiverId);
-                                                                return currentContact?.user?.picture || conversationUser?.picture || Avatar;
-                                                            })()} className="w-12 h-12 rounded-full object-cover" alt="User" />
-                                                            {isOnline && (
-                                                                <div className="absolute bottom-0 right-0 w-3 h-3 bg-accent rounded-full border-2 border-white"></div>
-                                                            )}
-                                                            {/* Unread count badge for regular conversations */}
-                                                            {unreadCounts[conversation.conversationId] > 0 && (
-                                                                <div className="absolute -top-1 -right-1 w-5 h-5 bg-red-500 text-white text-xs rounded-full flex items-center justify-center font-bold">
-                                                                    {unreadCounts[conversation.conversationId] > 99 ? '99+' : unreadCounts[conversation.conversationId]}
-                                                                </div>
-                                                            )}
-                                                        </div>
-                                                        <div className="ml-3 flex-1 min-w-0">
-                                                            <h3 className={`text-sm font-medium truncate ${isActive ? 'text-primary-700' : 'text-neutral-900'}`}>
-                                                                {conversationUser?.fullName}
-                                                            </h3>
-                                                            <p className={`text-xs truncate ${isActive ? 'text-primary-600' : 'text-neutral-500'}`}>
-                                                                {conversation.lastMessage ? conversation.lastMessage.message : (isOnline ? 'Online' : 'Offline')}
-                                                            </p>
-                                                        </div>
+                                                    <div className="ml-3 flex-1 min-w-0">
+                                                        <h3 className={`text-sm font-medium truncate ${isActive ? 'text-primary-700' : 'text-neutral-900'}`}>{contact.user?.fullName}</h3>
+                                                        <p className={`text-xs truncate ${isActive ? 'text-primary-600' : 'text-neutral-500'}`}>{conversation.lastMessage ? conversation.lastMessage.message : (isOnline ? 'Online' : 'Offline')}</p>
                                                     </div>
-                                                );
-                                            }
+                                                </div>
+                                            );
+                                        })}
+                                        {/* Render group conversations below contacts */}
+                                        {conversations.filter(conv => conv.isGroup).map((conversation) => {
+                                            const { conversationId, group } = conversation;
+                                            const isActive = messages?.isGroup && messages?.groupId === group.id;
+                                            return (
+                                                <div
+                                                    key={conversationId}
+                                                    className={`flex items-center p-3 rounded-xl cursor-pointer transition-colors ${isActive ? 'bg-primary-50 border border-primary-200' : 'hover:bg-neutral-100'}`}
+                                                    onClick={() => {
+                                                        const groupConversation = conversations.find(conv => conv.isGroup && conv.group && conv.group.id === group.id);
+                                                        if (groupConversation) {
+                                                            fetchGroupMessages(conversationId, group);
+                                                        }
+                                                    }}
+                                                >
+                                                    <div className="relative">
+                                                        <div className="w-12 h-12 bg-primary-100 rounded-full flex items-center justify-center">
+                                                            {group.profilePicture ? (
+                                                                <img src={group.profilePicture} className="w-12 h-12 rounded-full object-cover" alt="Group" />
+                                                            ) : (
+                                                                <svg className="w-6 h-6 text-primary-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
+                                                                </svg>
+                                                            )}
+                                                        </div>
+                                                        {/* Unread count badge for groups */}
+                                                        {unreadCounts[conversationId] > 0 && (
+                                                            <div className="absolute -top-1 -right-1 w-5 h-5 bg-red-500 text-white text-xs rounded-full flex items-center justify-center font-bold">
+                                                                {unreadCounts[conversationId] > 99 ? '99+' : unreadCounts[conversationId]}
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                    <div className="ml-3 flex-1 min-w-0">
+                                                        <h3 className={`text-sm font-medium truncate ${isActive ? 'text-primary-700' : 'text-neutral-900'}`}>{group.name}</h3>
+                                                        <p className={`text-xs truncate ${isActive ? 'text-primary-600' : 'text-neutral-500'}`}>{conversation.lastMessage ? conversation.lastMessage.message : 'No messages yet'} • {group.memberCount} member{group.memberCount !== 1 ? 's' : ''}</p>
+                                                    </div>
+                                                </div>
+                                            );
                                         })}
                                     </div>
                                 ) : (
@@ -1633,7 +1683,11 @@ const Dashboard = () => {
                         {contacts.length > 0 ? (
                             <div className="space-y-1">
                                 {contacts.map((contact) => {
+                                    console.log('[ContactList] activeUsers:', activeUsers);
+                                    console.log(`[ContactList] Checking contact receiverId: ${contact.user?.receiverId}`);
+                                    activeUsers.forEach(u => console.log(`[ContactList] activeUser: userId=${u.userId}, socketId=${u.socketId}`));
                                     const isOnline = activeUsers.find(x => x.userId === contact.user?.receiverId);
+                                    console.log(`[ContactList] Contact ${contact.user?.receiverId} online:`, !!isOnline);
 
                                     return (
                                         <div

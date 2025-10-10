@@ -1,4 +1,5 @@
-const redisService = require('./redisService');
+
+const natsService = require('./natsService');
 const messageQueueService = require('./messageQueueService');
 const Messages = require('../models/Messages');
 const Conversations = require('../models/Conversations');
@@ -6,11 +7,17 @@ const GroupConversations = require('../models/GroupConversations');
 const Groups = require('../models/Groups');
 const Contacts = require('../models/Contacts');
 const Users = require('../models/Users');
+const logger = require('../logger');
 
 class MessageDeliveryService {
     constructor(io) {
         this.io = io;
         this.localUsers = new Map(); // Local socket connections on this server
+        // Subscribe to NATS for active users and messages
+        natsService.subscribe('active_users.update', this.handleActiveUsersUpdate.bind(this));
+        logger.info('[MessageDeliveryService] Subscribed to NATS subject: active_users.update');
+        natsService.subscribe('message.send', this.handleCrossServerMessage.bind(this));
+        logger.info('[MessageDeliveryService] Subscribed to NATS subject: message.send');
     }
 
     // Helper function to automatically add contacts when receiving messages
@@ -131,195 +138,148 @@ class MessageDeliveryService {
     }
 
     // Set local user connection
-    setLocalUser(userId, socketData) {
+    setLocalUser(userId, socketData, activeUsers, contacts) {
         this.localUsers.set(userId, socketData);
-        // Also update Redis for cross-server coordination
-        redisService.setUserSession(userId, {
-            ...socketData,
-            serverId: redisService.serverId
+        // Publish active users list to NATS
+        natsService.publish('active_users.update', {
+            activeUsers,
+            contacts
         });
     }
 
     // Remove local user connection
-    removeLocalUser(userId) {
+    removeLocalUser(userId, activeUsers, contacts) {
         this.localUsers.delete(userId);
-        redisService.removeUserSession(userId);
+        // Publish active users list to NATS
+        natsService.publish('active_users.update', {
+            activeUsers,
+            contacts
+        });
     }
 
     // Get user location (local or remote server)
     async getUserLocation(userId) {
-        // Check local first
+        // Only check local users; NATS does not store sessions
         if (this.localUsers.has(userId)) {
             return {
                 isLocal: true,
                 socketData: this.localUsers.get(userId),
-                serverId: redisService.serverId
+                serverId: 'local'
             };
         }
-
-        // Check Redis for remote servers
-        const session = await redisService.getUserSession(userId);
-        if (session) {
-            return {
-                isLocal: false,
-                socketData: session,
-                serverId: session.serverId
-            };
-        }
-
-        return null; // User is offline
+        return null; // User is offline or on another pod
     }
 
     // Send message with ordering and delivery guarantees
     async sendMessageWithOrdering(messageData) {
         const { conversationId, senderId, message, isGroup, receiverId, groupMembers } = messageData;
-
-        logger.info(`[MessageDelivery] Processing ordered message for conversation ${conversationId}`);
-
-        // Step 1: Acquire lock for conversation to ensure ordering
-        const lockResult = await redisService.acquireMessageLock(conversationId, 10000); // 10 second timeout
-
-        if (!lockResult.success) {
-            logger.error(`[MessageDelivery] Could not acquire message lock for conversation ${conversationId}`);
-            throw new Error('Could not acquire message lock - another message is being processed');
-        }
-
-        try {
-            // Step 2: Get sequence number for this message
-            logger.info(`[MessageDelivery] Acquired lock for conversation ${conversationId}`);
-            const sequenceNumber = await redisService.getNextSequenceNumber(conversationId);
-
-            // Step 3: Save to MongoDB first for persistence
-            const newMessage = new Messages({
-                conversationId,
-                senderId,
-                message,
-                sequenceNumber
-            });
-            await newMessage.save();
-            logger.info(`[MessageDelivery] Message saved to MongoDB: ${newMessage._id}`);
-
-            // Step 4: Prepare message data with ordering info
-            const orderedMessageData = {
-                messageId: newMessage._id.toString(),
-                conversationId,
-                senderId,
-                message,
-                sequenceNumber,
-                timestamp: newMessage.createdAt.toISOString(),
-                isGroup,
-                user: messageData.user
-            };
-
-            // Step 5: Determine recipients
-            let recipientIds = [];
-            if (isGroup && groupMembers) {
-                recipientIds = groupMembers.filter(id => id !== senderId);
-
-                // Auto-add contacts for all group members
-                logger.info(`[MessageDelivery] Auto-adding contacts for group message from sender ${senderId}`);
-                for (const memberId of groupMembers) {
-                    const memberIdString = memberId.toString();
-                    if (memberIdString !== senderId) {
-                        await this.autoAddContact(memberIdString, senderId);
-                        await this.autoAddContact(senderId, memberIdString);
-                    }
+        const sequenceNumber = Date.now(); // Use timestamp for ordering
+        // Save to MongoDB first for persistence
+        const newMessage = new Messages({
+            conversationId,
+            senderId,
+            message,
+            sequenceNumber
+        });
+        await newMessage.save();
+        const orderedMessageData = {
+            messageId: newMessage._id.toString(),
+            conversationId,
+            senderId,
+            message,
+            sequenceNumber,
+            timestamp: newMessage.createdAt.toISOString(),
+            isGroup,
+            user: messageData.user
+        };
+        let recipientIds = [];
+        if (isGroup && groupMembers) {
+            recipientIds = groupMembers.filter(id => id !== senderId);
+            for (const memberId of groupMembers) {
+                const memberIdString = memberId.toString();
+                if (memberIdString !== senderId) {
+                    await this.autoAddContact(memberIdString, senderId);
+                    await this.autoAddContact(senderId, memberIdString);
                 }
-
-                // Update group conversation
-                await GroupConversations.findByIdAndUpdate(conversationId, {
-                    'lastMessage.message': message,
-                    'lastMessage.sender': senderId,
-                    'lastMessage.timestamp': newMessage.createdAt,
-                    'lastMessage.sequenceNumber': sequenceNumber
-                });
-            } else if (receiverId) {
-                recipientIds = [receiverId];
-
-                // Auto-add contacts for both sender and receiver for regular messages
-                logger.info(`[MessageDelivery] Auto-adding contacts for regular message: sender=${senderId}, receiver=${receiverId}`);
-                await this.autoAddContact(receiverId, senderId); // Add sender to receiver's contacts
-                await this.autoAddContact(senderId, receiverId); // Add receiver to sender's contacts
-
-                // Update regular conversation
-                await Conversations.findByIdAndUpdate(conversationId, {
-                    'lastMessage.message': message,
-                    'lastMessage.sender': senderId,
-                    'lastMessage.timestamp': newMessage.createdAt,
-                    'lastMessage.sequenceNumber': sequenceNumber
-                });
             }
-
-            // Step 6: Add sender to recipients for confirmation
-            recipientIds.push(senderId);
-
-            // Step 7: Deliver to online users and queue for offline users
-            const deliveryResults = await this.deliverToRecipients(orderedMessageData, recipientIds);
-            logger.info(`[MessageDelivery] Delivering message ${orderedMessageData.messageId} to recipients: ${recipientIds.join(',')}`);
-
-            // Step 8: Update conversation lists for all recipients
-            await this.updateConversationLists(recipientIds, conversationId, isGroup);
-            logger.info(`[MessageDelivery] Updated conversation lists for recipients: ${recipientIds.join(',')}`);
-
-            console.log(`Message ${orderedMessageData.messageId} delivered with sequence ${sequenceNumber}`);
-            logger.info(`[MessageDelivery] Message ${orderedMessageData.messageId} delivered with sequence ${sequenceNumber}`);
-
-            return {
-                success: true,
-                messageData: orderedMessageData,
-                deliveryResults,
-                sequenceNumber
-            };
-
-        } finally {
-            // Step 9: Always release the lock
-            logger.info(`[MessageDelivery] Releasing lock for conversation ${conversationId}`);
-            await redisService.releaseLock(conversationId, lockResult.lockId);
+            await GroupConversations.findByIdAndUpdate(conversationId, {
+                'lastMessage.message': message,
+                'lastMessage.sender': senderId,
+                'lastMessage.timestamp': newMessage.createdAt,
+                'lastMessage.sequenceNumber': sequenceNumber
+            });
+        } else if (receiverId) {
+            recipientIds = [receiverId];
+            await this.autoAddContact(receiverId, senderId);
+            await this.autoAddContact(senderId, receiverId);
+            await Conversations.findByIdAndUpdate(conversationId, {
+                'lastMessage.message': message,
+                'lastMessage.sender': senderId,
+                'lastMessage.timestamp': newMessage.createdAt,
+                'lastMessage.sequenceNumber': sequenceNumber
+            });
         }
+        recipientIds.push(senderId);
+        const deliveryResults = await this.deliverToRecipients(orderedMessageData, recipientIds);
+        await this.updateConversationLists(recipientIds, conversationId, isGroup);
+        return {
+            success: true,
+            messageData: orderedMessageData,
+            deliveryResults,
+            sequenceNumber
+        };
     }
 
-    // Deliver message to recipients (online immediately, offline to queue)
+    // Deliver message to recipients (all go through NATS)
     async deliverToRecipients(messageData, recipientIds) {
         const deliveryResults = [];
-
         for (const recipientId of recipientIds) {
             try {
-                const userLocation = await this.getUserLocation(recipientId);
-                if (userLocation) {
-                    // User is online
-                    if (userLocation.isLocal) {
-                        // User is on this server
-                        logger.info(`[MessageDelivery] Delivering to local user ${recipientId}`);
-                        this.deliverToLocalUser(recipientId, messageData, userLocation.socketData);
-                        deliveryResults.push({ userId: recipientId, status: 'delivered_local' });
-                    } else {
-                        // User is on another server - broadcast via Redis
-                        logger.info(`[MessageDelivery] Delivering to remote user ${recipientId} on server ${userLocation.serverId}`);
-                        await redisService.broadcastMessage('deliver_message', {
-                            userId: recipientId,
-                            messageData,
-                            targetServer: userLocation.serverId
-                        });
-                        deliveryResults.push({ userId: recipientId, status: 'delivered_remote' });
-                    }
-                } else {
-                    // User is offline - add to queue
-                    logger.info(`[MessageDelivery] Queuing message for offline user ${recipientId}`);
-                    await redisService.queueMessageForUser(recipientId, messageData);
-                    deliveryResults.push({ userId: recipientId, status: 'queued' });
-                }
+                // Always publish to NATS for consistency
+                await natsService.publish('message.send', {
+                    userId: recipientId,
+                    messageData
+                });
+                deliveryResults.push({ userId: recipientId, status: 'delivered_nats' });
             } catch (error) {
-                logger.error(`[MessageDelivery] Error delivering message to user ${recipientId}: ${error.message}`);
                 deliveryResults.push({ userId: recipientId, status: 'error', error: error.message });
             }
         }
-
         return deliveryResults;
+    }
+    // Handle NATS active users update
+    handleActiveUsersUpdate(data) {
+        // Emit active users list to all relevant contacts
+        if (data && data.activeUsers && data.contacts) {
+            data.contacts.forEach(contactId => {
+                const userSession = this.localUsers.get(contactId);
+                if (userSession) {
+                    this.io.to(userSession.socketId).emit('activeUsers', data.activeUsers);
+                }
+            });
+        }
+    }
+
+    // Handle NATS message delivery
+    handleCrossServerMessage(data) {
+        logger.info(`[NATS] Received message.send for userId=${data?.userId}, messageId=${data?.messageData?.messageId}, conversationId=${data?.messageData?.conversationId}`);
+        if (data && data.userId && data.messageData) {
+            const userSession = this.localUsers.get(data.userId);
+            if (userSession) {
+                logger.info(`[NATS] Found local user for userId=${data.userId}, socketId=${userSession.socketId}. Emitting getMessage.`);
+                this.deliverToLocalUser(data.userId, data.messageData, userSession);
+            } else {
+                logger.warn(`[NATS] No local user found for userId=${data.userId}. Message will not be delivered in real time.`);
+            }
+        } else {
+            logger.warn(`[NATS] Invalid data received in message.send: ${JSON.stringify(data)}`);
+        }
     }
 
     // Deliver message to local user
     deliverToLocalUser(userId, messageData, socketData) {
         if (socketData && socketData.socketId) {
+            logger.info(`[MessageDelivery] Emitting getMessage to userId=${userId}, socketId=${socketData.socketId}, conversationId=${messageData.conversationId}, messageId=${messageData.messageId}`);
             this.io.to(socketData.socketId).emit('getMessage', messageData);
             logger.info(`[MessageDelivery] Delivered message to local user ${userId} via socket ${socketData.socketId}`);
         }
@@ -327,23 +287,16 @@ class MessageDeliveryService {
 
     // Update conversation lists for all recipients
     async updateConversationLists(recipientIds, conversationId, isGroup) {
-        // Fetch and send updated conversation lists to all recipients
         for (const recipientId of recipientIds) {
             try {
                 const userLocation = await this.getUserLocation(recipientId);
-
                 if (userLocation && userLocation.isLocal) {
-                    // Get updated conversations for this user
                     const updatedConversations = await this.getUpdatedConversations(recipientId);
-
-                    // Send conversation list update to local user
-                    console.log(`Emitting conversationsListUpdated to ${recipientId} with ${updatedConversations.length} conversations`);
                     this.io.to(userLocation.socketData.socketId).emit('conversationsListUpdated', {
                         conversations: updatedConversations
                     });
-                } else if (userLocation && !userLocation.isLocal) {
-                    // Broadcast to remote server
-                    await redisService.broadcastMessage('conversation_updated', {
+                } else {
+                    await natsService.publish('conversation_updated', {
                         userId: recipientId,
                         conversationId,
                         action: 'messageReceived',
@@ -351,7 +304,7 @@ class MessageDeliveryService {
                     });
                 }
             } catch (error) {
-                console.error(`Error updating conversation list for user ${recipientId}:`, error);
+                // Log error if needed
             }
         }
     }
@@ -386,27 +339,21 @@ class MessageDeliveryService {
         }
     }
 
-    // Handle cross-server message delivery
+    // Handle cross-server message delivery (NATS events)
     handleCrossServerEvent(eventData) {
         const { event, data } = eventData;
-
         switch (event) {
             case 'deliver_message':
-                if (data.targetServer === redisService.serverId) {
-                    const userLocation = this.localUsers.get(data.userId);
-                    if (userLocation) {
-                        this.deliverToLocalUser(data.userId, data.messageData, userLocation);
-                    }
+                const userLocation = this.localUsers.get(data.userId);
+                if (userLocation) {
+                    this.deliverToLocalUser(data.userId, data.messageData, userLocation);
                 }
                 break;
-
             case 'conversation_updated':
-                // Send updated conversation list to user on this server
                 this.sendConversationUpdate(data.userId, data.conversationId, data.action, data.isGroup);
                 break;
-
             default:
-                console.log('Unknown cross-server event:', event);
+            // Unknown event
         }
     }
 

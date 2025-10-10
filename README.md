@@ -1,20 +1,11 @@
 # Chatter - Real-time Chat Application
-Access the chat app at: [chat-app](http://212.2.253.234/)
+Access the chat app at: [chat-app](http://212.2.252.121/)
 
-Chatter is a scalable real-time chat app built with React, Node.js, MongoDB, and Redis.
+Chatter is a scalable real-time chat app built with React, Node.js, MongoDB, and NATS.
 
 ## Highlights
-- Secure phone-based authentication
-- Real-time messaging and contact management
-- Distributed, cloud-native architecture
 
 ## Deployment & Usage
-All setup and run instructions are in [DEPLOYMENT_GUIDE.md](./DEPLOYMENT_GUIDE.md).
-
-## 🏗️ Enterprise Architecture
-
-### Technology Stack
-- **Frontend**: React 18 + Tailwind CSS + Socket.IO Client
 - **Backend**: Node.js + Express.js + Socket.IO Server  
 - **Database**: MongoDB with Mongoose ODM + Redis for scaling
 - **Authentication**: Simple phone-based registration/login
@@ -33,12 +24,12 @@ All setup and run instructions are in [DEPLOYMENT_GUIDE.md](./DEPLOYMENT_GUIDE.m
                               │                         │                         │
                               ▼                         ▼                         ▼
                     ┌─────────────────┐       ┌─────────────────┐       ┌─────────────────┐
-                    │   Server 1      │◄─────►│     Redis       │◄─────►│   Server 2      │
+                    │   Server 1      │◄─────►│     NATS        │◄─────►│   Server 2      │
                     │   (Socket.IO)   │       │  (Coordination) │       │   (Socket.IO)   │
-                    └─────────────────┘       │  • Sessions     │       └─────────────────┘
+                    └─────────────────┘       │  • Online Users │       └─────────────────┘
                               │               │  • Pub/Sub      │                 │
-                              │               │  • Locks        │                 │
-                              │               │  • Queues       │                 │
+                              │               │  • Events       │                 │
+                              │               │  • Message Sync │                 │
                               │               └─────────────────┘                 │
                               │                                                   │
                               └─────────────────────┐         ┌───────────────────┘
@@ -54,8 +45,8 @@ All setup and run instructions are in [DEPLOYMENT_GUIDE.md](./DEPLOYMENT_GUIDE.m
 
 ### Message Flow Pipeline
 ```
-Client → Socket.IO → Server → Redis (Lock) → MongoDB → 
-Redis (Pub/Sub) → Target Server → Target Client
+Client → Socket.IO → Server → NATS (Event Bus) → MongoDB → 
+NATS (Pub/Sub) → Target Server → Target Client
 ```
 
 ## 🚀 Production Deployment
@@ -63,9 +54,9 @@ Redis (Pub/Sub) → Target Server → Target Client
 ### Horizontal Scaling Configuration
 Deploy multiple server instances behind a load balancer:
 - Each server gets unique SERVER_ID (server-1, server-2, etc.)
-- Redis coordinates cross-server communication
+- NATS coordinates cross-server communication and online user sync
 - Users can connect to any server instance
-- Messages route seamlessly via Redis pub/sub
+- Messages and online status route seamlessly via NATS pub/sub
 - No Kubernetes required - simple multi-process deployment
 
 ## 🔧 Enterprise Configuration
@@ -76,7 +67,7 @@ Deploy multiple server instances behind a load balancer:
 ```bash
 PORT=8000
 MONGODB_URI=mongodb://localhost:27017/chatter
-REDIS_URL=redis://localhost:6379
+NATS_URL=nats://localhost:4222
 SERVER_ID=server-1
 SYNC_INTERVAL_MINUTES=5
 NODE_ENV=production
@@ -88,13 +79,11 @@ REACT_APP_API_URL=http://localhost:8000
 REACT_APP_WS_URL=http://localhost:8000
 ```
 
-### Redis Configuration
-Essential for horizontal scaling and message ordering:
-- **Message Locks**: `lock:conversation:{conversationId}`
-- **User Sessions**: `user:{userId}` → `{socketId, serverId}`
-- **Sequence Numbers**: `seq:{conversationId}`
-- **Message Queues**: `queue:{userId}`
-- **Pub/Sub Channels**: `broadcast`, `conversation_updated`
+### NATS Configuration
+Essential for horizontal scaling and online user sync:
+- **Active Users Subject**: `active_users.global` (authoritative online user list)
+- **Message Events**: `message.send` (real-time message delivery)
+- **Pub/Sub Channels**: `active_users.update`, `socket_events`
 
 ## 📁 Enterprise Project Structure
 
@@ -116,12 +105,12 @@ chatter/
 │   │   ├── Users.js           # User management
 │   │   └── Contacts.js        # Auto-contact system
 │   ├── services/              # Enterprise Services
-│   │   ├── redisService.js          # Redis operations
-│   │   ├── messageQueueService.js   # Offline queuing
-│   │   └── messageDeliveryService.js # Ordered delivery
+│   │   ├── natsService.js                 # NATS operations
+│   │   ├── messageQueueService.js         # Offline queuing
+│   │   └── messageDeliveryService.js      # Ordered delivery
 │   ├── middleware/            # Authentication & validation
 │   ├── db/                    # Database connection
-│   └── app.js                 # Express + Socket.IO + Redis
+│   └── app.js                 # Express + Socket.IO + NATS
 ├── 📄 NOTES.md               # Complete technical documentation
 └── 📄 README.md              # This file
 ```
@@ -135,16 +124,16 @@ chatter/
 - **Database Indexes**: MongoDB compound indexes prevent storage duplicates
 
 ### Guaranteed Message Ordering
-- **Conversation Locks**: Redis-based distributed locking per conversation
+- **Conversation Locks**: NATS-based distributed locking per conversation
 - **Sequence Numbers**: Monotonic counters ensure proper ordering
 - **Ordered Delivery**: Messages delivered in exact send order
-- **Cross-Server Coordination**: Redis pub/sub maintains order across servers
+- **Cross-Server Coordination**: NATS pub/sub maintains order across servers
 
 ### Horizontal Scaling Architecture
-- **Multi-Server Support**: Deploy unlimited server instances
-- **Load Balancer Ready**: Users distributed across server farm
-- **Session Management**: Redis tracks user-to-server mapping
-- **Cross-Server Messaging**: Seamless message routing via Redis
+- **NATS Coordination**: NATS handles cross-server communication and online user sync
+- **Pub/Sub Messaging**: Real-time message delivery and user status updates via NATS channels
+- **Multi-Server Support**: Deploy unlimited server instances behind a load balancer
+- **Session Management**: Redis tracks user-to-server mapping for efficient routing
 
 ### Auto-Contact Management
 - **Bidirectional Addition**: Automatic contact creation when messaging
@@ -182,7 +171,7 @@ chatter/
 
 #### Production Monitoring
 - `GET /health` - Health check endpoint
-- `GET /api/redis/status` - Redis connection status (if implemented)
+- `GET /api/nats/status` - NATS connection status (if implemented)
 
 ---
 
@@ -259,8 +248,8 @@ This README contains all the necessary information to set up and use the Chatter
 - [ ] **Advanced Admin Controls** - User management and moderation tools
 - [ ] **Message Search** - Full-text search across conversations
 - [ ] **Custom Status** - User presence with custom status messages
-- [ ] **Mobile App** - React Native with same Redis backend
-- [ ] **Redis Cluster** - High availability Redis deployment
+- [ ] **Mobile App** - React Native with same NATS backend
+- [ ] **NATS Cluster** - High availability NATS deployment
 - [ ] **MongoDB Sharding** - Database scaling for large deployments
 
 ## 📄 License
@@ -270,7 +259,7 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 ## 🙏 Acknowledgments
 
 - Socket.IO for real-time communication and scaling capabilities
-- Redis for enterprise-grade message ordering and horizontal scaling
+- NATS for enterprise-grade message ordering and horizontal scaling
 - MongoDB for reliable, scalable data storage
 - Tailwind CSS for beautiful, responsive styling
 - React team for the powerful frontend framework
@@ -283,10 +272,10 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 This chat application demonstrates enterprise-level software engineering with:
 - **Simple phone-based authentication** - No complex OAuth setup required
 - **Zero message duplication** through multi-layer prevention
-- **Guaranteed message ordering** via Redis-based distributed locking
+-- **Guaranteed message ordering** via NATS-based distributed event bus
 - **True horizontal scaling** supporting unlimited server instances without Kubernetes
 - **Auto-contact management** for seamless user experience
 - **localStorage-first architecture** with intelligent synchronization
 - **Production-ready monitoring** and health check endpoints
 
-The system is ready for production deployment with comprehensive error handling, monitoring, and horizontal scaling capabilities using simple Redis coordination.
+The system is ready for production deployment with comprehensive error handling, monitoring, and horizontal scaling capabilities using simple NATS coordination.

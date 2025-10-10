@@ -9,9 +9,10 @@ const cors = require('cors');
 
 const bcrypt = require('bcryptjs');
 // Import services
-const redisService = require('./services/redisService');
+const natsService = require('./services/natsService');
 const messageQueueService = require('./services/messageQueueService');
-const MessageDeliveryService = require('./services/messageDeliveryService');
+
+let messageDeliveryService;
 
 // Import models
 const Users = require('./models/Users');
@@ -21,6 +22,20 @@ const GroupConversations = require('./models/GroupConversations');
 const Messages = require('./models/Messages');
 const Contacts = require('./models/Contacts');
 const ReadReceipts = require('./models/ReadReceipts');
+
+// Global activeUsers map (userId -> socketId)
+// Local pod map for socket connections
+const activeUsersMap = new Map();
+// Global list of online users from NATS
+let globalActiveUsers = [];
+
+// Helper: get online status for array of userIds
+function getOnlineStatus(userIds) {
+    return userIds.map(userId => ({
+        userId,
+        online: globalActiveUsers.some(u => u.userId === userId)
+    }));
+}
 
 // app Use[/]
 const app = express();
@@ -107,18 +122,25 @@ const io = require('socket.io')(server, {
 });
 
 
-// Socket.IO Redis adapter for multi-server scaling
-const { createAdapter } = require('@socket.io/redis-adapter');
-const { createClient } = require('redis');
-const pubClient = createClient({ url: process.env.REDIS_URL || 'redis://my-redis-master:6379' });
-const subClient = pubClient.duplicate();
-Promise.all([pubClient.connect(), subClient.connect()]).then(() => {
-    io.adapter(createAdapter(pubClient, subClient));
-    logger.info('Socket.IO Redis adapter enabled');
-});
 
-// Initialize message delivery service
-const messageDeliveryService = new MessageDeliveryService(io);
+// Initialize message delivery service AFTER NATS is connected
+(async () => {
+    await natsService.connect();
+    messageDeliveryService = new (require('./services/messageDeliveryService'))(io);
+    logger.info('[app.js] MessageDeliveryService initialized after NATS connection');
+    // Subscribe to global active users updates from NATS
+    natsService.subscribe('active_users.global', (data) => {
+        if (Array.isArray(data.activeUsers)) {
+            globalActiveUsers = data.activeUsers;
+            logger.info('[app.js] Updated globalActiveUsers from NATS: %s', JSON.stringify(globalActiveUsers));
+            // Emit the merged globalActiveUsers list to all sockets
+            activeUsersMap.forEach((_, socketId) => {
+                logger.info(`[SOCKET] Emitting 'activeUsers' to socketId=${socketId}. Payload: %s`, JSON.stringify(globalActiveUsers));
+                io.to(socketId).emit('activeUsers', globalActiveUsers);
+            });
+        }
+    });
+})();
 
 // connect database
 require('./db/connection');
@@ -342,23 +364,68 @@ const establishExistingConnections = async (userId, socketId) => {
 };
 
 // Socket.io
-let users = [] // Keep for backward compatibility, but use Redis for scaling
+let users = [] // Keep for backward compatibility, but use nats server for scaling
 io.on('connection', socket => {
     socket.on('addUser', async userId => {
+        // Immediately emit the current globalActiveUsers to this socket
+        logger.info(`[SOCKET] Emitting initial 'activeUsers' to socketId=${socket.id}. Payload: %s`, JSON.stringify(globalActiveUsers));
+        io.to(socket.id).emit('activeUsers', globalActiveUsers);
+        logger.info(`[SOCKET] addUser event received for userId=${userId}, socketId=${socket.id}`);
+        // Add user to activeUsersMap for online status
+        activeUsersMap.set(userId, socket.id);
+        // Merge local activeUsersMap with globalActiveUsers
+        let mergedActiveUsers = [...globalActiveUsers];
+        // Add/replace local users in the merged list
+        activeUsersMap.forEach((socketId, userId) => {
+            const idx = mergedActiveUsers.findIndex(u => u.userId === userId);
+            if (idx >= 0) {
+                mergedActiveUsers[idx].socketId = socketId;
+            } else {
+                mergedActiveUsers.push({ userId, socketId });
+            }
+        });
+        // Remove any users from mergedActiveUsers that have no socketId (disconnected)
+        mergedActiveUsers = mergedActiveUsers.filter(u => u.socketId);
+        // Publish the full merged list to NATS (do NOT filter by local pod)
+        await natsService.publish('active_users.global', { activeUsers: mergedActiveUsers });
+
+        // Notify all online contacts that this user is now online
+        const contacts = (await Contacts.find({ userId })).map(c => c.contactUserId);
+        for (const contactId of contacts) {
+            if (activeUsersMap.has(contactId)) {
+                const contactSocketId = activeUsersMap.get(contactId);
+                io.to(contactSocketId).emit('contactOnline', { userId });
+            }
+        }
+        // Emit updated activeUsers list to all online users (global broadcast)
+        const activeUsersPayload = Array.from(activeUsersMap.entries()).map(([userId, socketId]) => ({ userId, socketId }));
+        // Do not emit activeUsers here; emission now happens only in NATS subscription callback
         console.log(`User attempting to connect: ${userId} with socket: ${socket.id}`);
 
         try {
             const IsUserExist = users.find(user => user.userId === userId);
+            // Get contacts who have this user in their contact list
+            const contacts = (await Contacts.find({ contactUserId: userId })).map(c => c.userId);
             if (!IsUserExist) {
                 const user = { userId, socketId: socket.id };
                 users.push(user);
 
-                // Add to message delivery service for local tracking
-                messageDeliveryService.setLocalUser(userId, { socketId: socket.id });
+                // Add to message delivery service for local tracking and NATS propagation
+                messageDeliveryService.setLocalUser(userId, { socketId: socket.id }, users, contacts);
+                logger.info(`[app.js] setLocalUser called for userId=${userId}, socketId=${socket.id}`);
+                logger.info(`[app.js] Current localUsers: ${JSON.stringify(Array.from(messageDeliveryService.localUsers.entries()))}`);
 
                 console.log(`User ${userId} connected successfully with socket ${socket.id}`);
                 console.log('Active users after connection:', users.map(u => ({ userId: u.userId, socketId: u.socketId })));
-                io.emit('getUsers', users);
+
+                // Emit online contacts to each user in the system
+                for (const u of users) {
+                    // Get this user's contacts
+                    const userContacts = (await Contacts.find({ userId: u.userId })).map(c => c.contactUserId);
+                    // Find which of their contacts are online
+                    const onlineContacts = users.filter(onlineUser => userContacts.includes(onlineUser.userId));
+                    io.to(u.socketId).emit('getUsers', onlineContacts);
+                }
 
                 // Process any queued messages for this user
                 await messageDeliveryService.processUserQueueOnConnect(userId, { socketId: socket.id });
@@ -369,7 +436,9 @@ io.on('connection', socket => {
                 console.log(`User ${userId} already exists with socket ${IsUserExist.socketId}`);
                 // Update socket ID in case it changed
                 IsUserExist.socketId = socket.id;
-                messageDeliveryService.setLocalUser(userId, { socketId: socket.id });
+                messageDeliveryService.setLocalUser(userId, { socketId: socket.id }, users, contacts);
+                logger.info(`[app.js] setLocalUser called for userId=${userId}, socketId=${socket.id}`);
+                logger.info(`[app.js] Current localUsers: ${JSON.stringify(Array.from(messageDeliveryService.localUsers.entries()))}`);
             }
         } catch (error) {
             console.error(`Error handling user connection for ${userId}:`, error);
@@ -440,33 +509,58 @@ io.on('connection', socket => {
         }
     });
 
-    socket.on('disconnect', () => {
-        const disconnectedUser = users.find(user => user.socketId === socket.id);
-        users = users.filter(user => user.socketId !== socket.id);
-        console.log(`Socket ${socket.id} disconnected`);
-
-        if (disconnectedUser) {
-            console.log(`User ${disconnectedUser.userId} disconnected`);
-
-            // Remove from message delivery service
-            messageDeliveryService.removeLocalUser(disconnectedUser.userId);
+    socket.on('disconnect', async () => {
+        // Remove user from activeUsersMap on disconnect
+        let disconnectedUserId = null;
+        for (const [userId, sockId] of activeUsersMap.entries()) {
+            if (sockId === socket.id) {
+                activeUsersMap.delete(userId);
+                disconnectedUserId = userId;
+            }
         }
 
-        console.log('Active users after disconnection:', users.map(u => ({ userId: u.userId, socketId: u.socketId })));
-        io.emit('getUsers', users);
+        // Merge local activeUsersMap with globalActiveUsers
+        let mergedActiveUsers = [...globalActiveUsers];
+        // Remove disconnected user from merged list
+        mergedActiveUsers = mergedActiveUsers.filter(u => u.userId !== disconnectedUserId);
+        // Add/replace remaining local users in the merged list
+        activeUsersMap.forEach((socketId, userId) => {
+            const idx = mergedActiveUsers.findIndex(u => u.userId === userId);
+            if (idx >= 0) {
+                mergedActiveUsers[idx].socketId = socketId;
+            } else {
+                mergedActiveUsers.push({ userId, socketId });
+            }
+        });
+        // Remove any users from mergedActiveUsers that have no socketId (disconnected)
+        mergedActiveUsers = mergedActiveUsers.filter(u => u.socketId);
+        // Publish the full merged list to NATS (do NOT filter by local pod)
+        await natsService.publish('active_users.global', { activeUsers: mergedActiveUsers });
 
-        // Notify other users about disconnection
-        if (disconnectedUser) {
-            socket.broadcast.emit('userDisconnected', {
-                userId: disconnectedUser.userId
-            });
+        // Emit updated activeUsers list to all online users (global broadcast)
+        // Do not emit activeUsers here; emission now happens only in NATS subscription callback
+        // Also notify messageDeliveryService for local cleanup
+        if (disconnectedUserId && messageDeliveryService) {
+            // Get contacts who have this user in their contact list
+            const contacts = (await Contacts.find({ contactUserId: disconnectedUserId })).map(c => c.userId);
+            messageDeliveryService.removeLocalUser(disconnectedUserId, activeUsersPayload, contacts);
         }
+        // ...existing disconnect logic...
     });
 });
 
 app.get('/', (req, res) => {
     res.send('Hello');
-})
+});
+
+// API endpoint: GET /api/active-users?userIds=...
+app.get('/api/active-users', (req, res) => {
+    let userIds = req.query.userIds;
+    if (!userIds) return res.status(400).json({ error: 'Missing userIds' });
+    if (typeof userIds === 'string') userIds = userIds.split(',');
+    const status = getOnlineStatus(userIds);
+    res.json({ status });
+});
 
 
 
@@ -1958,27 +2052,30 @@ app.get('/api/sync/config', (req, res) => {
     });
 });
 
+
 server.listen(PORT, '0.0.0.0', async () => {
     logger.info('HTTP and Socket.IO server listening on port : %s', PORT);
 
-    // Initialize Redis service for horizontal scaling
-    try {
-        await redisService.connect();
+    // Use an async IIFE for async/await
+    (async () => {
+        try {
+            await natsService.connect();
 
-        // Subscribe to cross-server events
-        redisService.subscribeToEvents((eventData) => {
-            messageDeliveryService.handleCrossServerEvent(eventData);
-        });
+            // Subscribe to cross-server events
+            natsService.subscribe('socket_events', (eventData) => {
+                messageDeliveryService.handleCrossServerEvent(eventData);
+            });
 
-        logger.info('Message ordering and scaling services initialized');
+            logger.info('Message ordering and scaling services initialized (NATS)');
 
-        // Start periodic queue cleanup (every 30 minutes)
-        setInterval(() => {
-            messageQueueService.cleanupOldQueues();
-        }, 30 * 60 * 1000);
+            // Start periodic queue cleanup (every 30 minutes)
+            setInterval(() => {
+                messageQueueService.cleanupOldQueues();
+            }, 30 * 60 * 1000);
 
-    } catch (error) {
-        logger.error('Failed to initialize Redis services: %s', error);
-        logger.warn('Running in single-server mode');
-    }
-})
+        } catch (error) {
+            logger.error('Failed to initialize NATS services: %s', error);
+            logger.warn('Running in single-server mode');
+        }
+    })();
+});
