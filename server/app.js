@@ -11,8 +11,12 @@ const bcrypt = require('bcryptjs');
 // Import services
 const natsService = require('./services/natsService');
 const messageQueueService = require('./services/messageQueueService');
+const PresenceService = require('./services/presenceService');
+const { HeartbeatManager } = require('./services/heartbeatManager');
 
 let messageDeliveryService;
+let presenceService;
+let heartbeatManager;
 
 // Import models
 const Users = require('./models/Users');
@@ -123,11 +127,23 @@ const io = require('socket.io')(server, {
 
 
 
-// Initialize message delivery service AFTER NATS is connected
+// Initialize services AFTER NATS is connected
 (async () => {
     await natsService.connect();
+
+    // Initialize message delivery service
     messageDeliveryService = new (require('./services/messageDeliveryService'))(io);
     logger.info('[app.js] MessageDeliveryService initialized after NATS connection');
+
+    // Initialize presence service
+    presenceService = new PresenceService();
+    await presenceService.initialize();
+    logger.info('[app.js] PresenceService initialized');
+
+    // Initialize heartbeat manager
+    heartbeatManager = new HeartbeatManager(presenceService, natsService.nc);
+    logger.info('[app.js] HeartbeatManager initialized');
+
     // Subscribe to global active users updates from NATS
     natsService.subscribe('active_users.global', (data) => {
         if (Array.isArray(data.activeUsers)) {
@@ -139,6 +155,21 @@ const io = require('socket.io')(server, {
                 io.to(socketId).emit('activeUsers', globalActiveUsers);
             });
         }
+    });
+
+    // Subscribe to presence events
+    natsService.subscribe('presence.events.user_online', (data) => {
+        logger.info('[app.js] User online event received:', data);
+        // Update global active users and emit to contacts
+        if (!globalActiveUsers.some(u => u.userId === data.userId)) {
+            globalActiveUsers.push({ userId: data.userId, socketId: null });
+        }
+    });
+
+    natsService.subscribe('presence.events.user_offline', (data) => {
+        logger.info('[app.js] User offline event received:', data);
+        // Remove from global active users
+        globalActiveUsers = globalActiveUsers.filter(u => u.userId !== data.userId);
     });
 })();
 
@@ -367,51 +398,81 @@ const establishExistingConnections = async (userId, socketId) => {
 let users = [] // Keep for backward compatibility, but use nats server for scaling
 io.on('connection', socket => {
     socket.on('addUser', async userId => {
-        // Immediately emit the current globalActiveUsers to this socket
-        logger.info(`[SOCKET] Emitting initial 'activeUsers' to socketId=${socket.id}. Payload: %s`, JSON.stringify(globalActiveUsers));
-        io.to(socket.id).emit('activeUsers', globalActiveUsers);
-        logger.info(`[SOCKET] addUser event received for userId=${userId}, socketId=${socket.id}`);
-        // Add user to activeUsersMap for online status
-        activeUsersMap.set(userId, socket.id);
-        // Merge local activeUsersMap with globalActiveUsers
-        let mergedActiveUsers = [...globalActiveUsers];
-        // Add/replace local users in the merged list
-        activeUsersMap.forEach((socketId, userId) => {
-            const idx = mergedActiveUsers.findIndex(u => u.userId === userId);
-            if (idx >= 0) {
-                mergedActiveUsers[idx].socketId = socketId;
-            } else {
-                mergedActiveUsers.push({ userId, socketId });
-            }
-        });
-        // Remove any users from mergedActiveUsers that have no socketId (disconnected)
-        mergedActiveUsers = mergedActiveUsers.filter(u => u.socketId);
-        // Publish the full merged list to NATS (do NOT filter by local pod)
-        await natsService.publish('active_users.global', { activeUsers: mergedActiveUsers });
-
-        // Notify all online contacts that this user is now online
-        const contacts = (await Contacts.find({ userId })).map(c => c.contactUserId);
-        for (const contactId of contacts) {
-            if (activeUsersMap.has(contactId)) {
-                const contactSocketId = activeUsersMap.get(contactId);
-                io.to(contactSocketId).emit('contactOnline', { userId });
-            }
-        }
-        // Emit updated activeUsers list to all online users (global broadcast)
-        const activeUsersPayload = Array.from(activeUsersMap.entries()).map(([userId, socketId]) => ({ userId, socketId }));
-        // Do not emit activeUsers here; emission now happens only in NATS subscription callback
-        console.log(`User attempting to connect: ${userId} with socket: ${socket.id}`);
-
         try {
+            // Immediately emit the current globalActiveUsers to this socket
+            logger.info(`[SOCKET] Emitting initial 'activeUsers' to socketId=${socket.id}. Payload: %s`, JSON.stringify(globalActiveUsers));
+            io.to(socket.id).emit('activeUsers', globalActiveUsers);
+            logger.info(`[SOCKET] addUser event received for userId=${userId}, socketId=${socket.id}`);
+
+            // Add user to activeUsersMap for online status
+            activeUsersMap.set(userId, socket.id);
+
+            // Generate connection ID for presence tracking
+            const connId = `${socket.id}_${Date.now()}`;
+
+            // Handle presence connection
+            if (presenceService) {
+                await natsService.publish('presence.connect', {
+                    userId,
+                    connId,
+                    metadata: {
+                        device: 'web',
+                        socketId: socket.id,
+                        connectedAt: Date.now()
+                    }
+                });
+
+                // Start heartbeat for this connection
+                if (heartbeatManager) {
+                    heartbeatManager.startHeartbeat(userId, connId, {
+                        socketId: socket.id,
+                        device: 'web'
+                    });
+                }
+            }
+
+            // Store connection ID on socket for cleanup
+            socket.presenceConnId = connId;
+            socket.presenceUserId = userId;
+            // Merge local activeUsersMap with globalActiveUsers
+            let mergedActiveUsers = [...globalActiveUsers];
+            // Add/replace local users in the merged list
+            activeUsersMap.forEach((socketId, userId) => {
+                const idx = mergedActiveUsers.findIndex(u => u.userId === userId);
+                if (idx >= 0) {
+                    mergedActiveUsers[idx].socketId = socketId;
+                } else {
+                    mergedActiveUsers.push({ userId, socketId });
+                }
+            });
+            // Remove any users from mergedActiveUsers that have no socketId (disconnected)
+            mergedActiveUsers = mergedActiveUsers.filter(u => u.socketId);
+            // Publish the full merged list to NATS (do NOT filter by local pod)
+            await natsService.publish('active_users.global', { activeUsers: mergedActiveUsers });
+
+            // Notify all online contacts that this user is now online
+            const contacts = (await Contacts.find({ userId })).map(c => c.contactUserId);
+            for (const contactId of contacts) {
+                if (activeUsersMap.has(contactId)) {
+                    const contactSocketId = activeUsersMap.get(contactId);
+                    io.to(contactSocketId).emit('contactOnline', { userId });
+                }
+            }
+
+            // Emit updated activeUsers list to all online users (global broadcast)
+            const activeUsersPayload = Array.from(activeUsersMap.entries()).map(([userId, socketId]) => ({ userId, socketId }));
+            // Do not emit activeUsers here; emission now happens only in NATS subscription callback
+            console.log(`User attempting to connect: ${userId} with socket: ${socket.id}`);
+
             const IsUserExist = users.find(user => user.userId === userId);
             // Get contacts who have this user in their contact list
-            const contacts = (await Contacts.find({ contactUserId: userId })).map(c => c.userId);
+            const contactsList = (await Contacts.find({ contactUserId: userId })).map(c => c.userId);
             if (!IsUserExist) {
                 const user = { userId, socketId: socket.id };
                 users.push(user);
 
                 // Add to message delivery service for local tracking and NATS propagation
-                messageDeliveryService.setLocalUser(userId, { socketId: socket.id }, users, contacts);
+                messageDeliveryService.setLocalUser(userId, { socketId: socket.id }, users, contactsList);
                 logger.info(`[app.js] setLocalUser called for userId=${userId}, socketId=${socket.id}`);
                 logger.info(`[app.js] Current localUsers: ${JSON.stringify(Array.from(messageDeliveryService.localUsers.entries()))}`);
 
@@ -436,7 +497,7 @@ io.on('connection', socket => {
                 console.log(`User ${userId} already exists with socket ${IsUserExist.socketId}`);
                 // Update socket ID in case it changed
                 IsUserExist.socketId = socket.id;
-                messageDeliveryService.setLocalUser(userId, { socketId: socket.id }, users, contacts);
+                messageDeliveryService.setLocalUser(userId, { socketId: socket.id }, users, contactsList);
                 logger.info(`[app.js] setLocalUser called for userId=${userId}, socketId=${socket.id}`);
                 logger.info(`[app.js] Current localUsers: ${JSON.stringify(Array.from(messageDeliveryService.localUsers.entries()))}`);
             }
@@ -509,43 +570,77 @@ io.on('connection', socket => {
         }
     });
 
+    // Add heartbeat handler
+    socket.on('presence:heartbeat', async (data) => {
+        try {
+            if (presenceService && data.userId && data.connId) {
+                await natsService.publish('presence.heartbeat', data);
+                logger.debug(`[SOCKET] Heartbeat received from ${data.userId}:${data.connId}`);
+            }
+        } catch (error) {
+            logger.error('Error handling heartbeat:', error);
+        }
+    });
+
     socket.on('disconnect', async () => {
-        // Remove user from activeUsersMap on disconnect
-        let disconnectedUserId = null;
-        for (const [userId, sockId] of activeUsersMap.entries()) {
-            if (sockId === socket.id) {
-                activeUsersMap.delete(userId);
-                disconnectedUserId = userId;
-            }
-        }
+        try {
+            // Handle presence disconnect
+            if (socket.presenceUserId && socket.presenceConnId) {
+                // Stop heartbeat
+                if (heartbeatManager) {
+                    heartbeatManager.stopHeartbeat(socket.presenceConnId);
+                }
 
-        // Merge local activeUsersMap with globalActiveUsers
-        let mergedActiveUsers = [...globalActiveUsers];
-        // Remove disconnected user from merged list
-        mergedActiveUsers = mergedActiveUsers.filter(u => u.userId !== disconnectedUserId);
-        // Add/replace remaining local users in the merged list
-        activeUsersMap.forEach((socketId, userId) => {
-            const idx = mergedActiveUsers.findIndex(u => u.userId === userId);
-            if (idx >= 0) {
-                mergedActiveUsers[idx].socketId = socketId;
-            } else {
-                mergedActiveUsers.push({ userId, socketId });
-            }
-        });
-        // Remove any users from mergedActiveUsers that have no socketId (disconnected)
-        mergedActiveUsers = mergedActiveUsers.filter(u => u.socketId);
-        // Publish the full merged list to NATS (do NOT filter by local pod)
-        await natsService.publish('active_users.global', { activeUsers: mergedActiveUsers });
+                // Publish disconnect event
+                await natsService.publish('presence.disconnect', {
+                    userId: socket.presenceUserId,
+                    connId: socket.presenceConnId,
+                    timestamp: Date.now(),
+                    reason: 'client_disconnect'
+                });
 
-        // Emit updated activeUsers list to all online users (global broadcast)
-        // Do not emit activeUsers here; emission now happens only in NATS subscription callback
-        // Also notify messageDeliveryService for local cleanup
-        if (disconnectedUserId && messageDeliveryService) {
-            // Get contacts who have this user in their contact list
-            const contacts = (await Contacts.find({ contactUserId: disconnectedUserId })).map(c => c.userId);
-            messageDeliveryService.removeLocalUser(disconnectedUserId, activeUsersPayload, contacts);
+                logger.info(`[SOCKET] User ${socket.presenceUserId} disconnected, connId: ${socket.presenceConnId}`);
+            }
+
+            // Remove user from activeUsersMap on disconnect
+            let disconnectedUserId = null;
+            for (const [userId, sockId] of activeUsersMap.entries()) {
+                if (sockId === socket.id) {
+                    activeUsersMap.delete(userId);
+                    disconnectedUserId = userId;
+                }
+            }
+
+            // Merge local activeUsersMap with globalActiveUsers
+            let mergedActiveUsers = [...globalActiveUsers];
+            // Remove disconnected user from merged list
+            mergedActiveUsers = mergedActiveUsers.filter(u => u.userId !== disconnectedUserId);
+            // Add/replace remaining local users in the merged list
+            activeUsersMap.forEach((socketId, userId) => {
+                const idx = mergedActiveUsers.findIndex(u => u.userId === userId);
+                if (idx >= 0) {
+                    mergedActiveUsers[idx].socketId = socketId;
+                } else {
+                    mergedActiveUsers.push({ userId, socketId });
+                }
+            });
+            // Remove any users from mergedActiveUsers that have no socketId (disconnected)
+            mergedActiveUsers = mergedActiveUsers.filter(u => u.socketId);
+            // Publish the full merged list to NATS (do NOT filter by local pod)
+            await natsService.publish('active_users.global', { activeUsers: mergedActiveUsers });
+
+            // Emit updated activeUsers list to all online users (global broadcast)
+            // Do not emit activeUsers here; emission now happens only in NATS subscription callback
+            // Also notify messageDeliveryService for local cleanup
+            if (disconnectedUserId && messageDeliveryService) {
+                // Get contacts who have this user in their contact list
+                const contacts = (await Contacts.find({ contactUserId: disconnectedUserId })).map(c => c.userId);
+                const activeUsersPayload = Array.from(activeUsersMap.entries()).map(([userId, socketId]) => ({ userId, socketId }));
+                messageDeliveryService.removeLocalUser(disconnectedUserId, activeUsersPayload, contacts);
+            }
+        } catch (error) {
+            logger.error('Error handling disconnect:', error);
         }
-        // ...existing disconnect logic...
     });
 });
 

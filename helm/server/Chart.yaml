@@ -9,6 +9,10 @@ dependencies:
     version: "^0.19.17"
     repository: "https://nats-io.github.io/k8s/helm/charts/"
     condition: nats.enabled
+  - name: redis
+    version: "^23.2.1"
+    repository: "https://charts.bitnami.com/bitnami"
+    condition: redis.enabled
   # - name: mongodb
   #   version: "^14.0.0"
   #   repository: "https://charts.bitnami.com/bitnami"

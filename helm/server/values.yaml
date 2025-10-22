@@ -1,10 +1,19 @@
 
-# MongoDB and NATS subcharts
+# MongoDB, NATS, and Redis subcharts
 nats:
   enabled: true
   replicaCount: 1
   auth:
     enabled: false
+
+redis:
+  enabled: true
+  replicaCount: 1
+  auth:
+    enabled: false
+  master:
+    persistence:
+      enabled: false # For development, disable persistence
 
 # mongodb:
 #   enabled: true
@@ -21,6 +30,7 @@ server:
   replicaCount: 3 # Increase to 3 for HA
   mongodbUri: ""
   natsUrl: "nats://chat-server-nats:4222" # Ensure NATS is accessible to all pods
+  redisUrl: "redis://chat-server-redis-master:6379" # Redis connection URL
   jwtSecretKey: "THIS_IS_A_JWT_SECRET_KEY"
   serverId: "{{ .Pod.Name }}"
   nodeEnv: "development"

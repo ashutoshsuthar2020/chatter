@@ -29,6 +29,8 @@ spec:
               value: {{ .Values.server.mongodbUri | default "mongodb://chat-server-mongodb:27017/chatter" | quote }}
             - name: NATS_URL
               value: {{ .Values.server.natsUrl | default "nats://chat-server-nats:4222" | quote }}
+            - name: REDIS_URL
+              value: {{ .Values.server.redisUrl | default "redis://chat-server-redis-master:6379" | quote }}
             - name: JWT_SECRET_KEY
               value: {{ .Values.server.jwtSecretKey | quote }}
             - name: SERVER_ID

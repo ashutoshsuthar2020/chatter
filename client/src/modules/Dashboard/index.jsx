@@ -12,6 +12,7 @@ import { useNavigate } from 'react-router-dom';
 import config from '../../config'
 import MessageStorage from '../../utils/messageStorage'
 import syncService from '../../utils/syncService'
+import { usePresence } from '../../utils/presenceClient'
 
 const Dashboard = () => {
     const getUserFromStorage = () => {
@@ -45,6 +46,12 @@ const Dashboard = () => {
     const [selectedGroup, setSelectedGroup] = useState(null);
     const [activeTab, setActiveTab] = useState('chats'); // 'chats' or 'groups'
     const [syncStatus, setSyncStatus] = useState({ isOnline: true, isSyncing: false, unsyncedCount: 0 }); // Sync status
+    const [presenceData, setPresenceData] = useState({}); // User presence data: {userId: {status, lastSeen, metadata}}
+    const [presenceTracker, setPresenceTracker] = useState(null); // Presence tracker instance
+
+    // Initialize presence tracking
+    const { heartbeat, activityTracker, isOnline, updateActivity, setTyping, clearTyping } = usePresence(socket, user?.id);
+
     const messageRef = useRef(null);
     const navigate = useNavigate();
 
@@ -250,6 +257,43 @@ const Dashboard = () => {
             socket.on('activeUsers', users => {
                 console.log('[Socket] Received activeUsers event:', users);
                 setActiveUsers(users);
+            });
+
+            // Listen for presence events
+            socket.on('user_online', (data) => {
+                console.log('[Presence] User came online:', data);
+                setPresenceData(prev => ({
+                    ...prev,
+                    [data.userId]: {
+                        status: 'online',
+                        lastSeen: new Date().toISOString(),
+                        metadata: data.metadata || {}
+                    }
+                }));
+            });
+
+            socket.on('user_offline', (data) => {
+                console.log('[Presence] User went offline:', data);
+                setPresenceData(prev => ({
+                    ...prev,
+                    [data.userId]: {
+                        status: 'offline',
+                        lastSeen: data.lastSeen || new Date().toISOString(),
+                        metadata: data.metadata || {}
+                    }
+                }));
+            });
+
+            socket.on('presence_update', (data) => {
+                console.log('[Presence] Presence update:', data);
+                setPresenceData(prev => ({
+                    ...prev,
+                    [data.userId]: {
+                        status: data.status || 'offline',
+                        lastSeen: data.lastSeen || new Date().toISOString(),
+                        metadata: data.metadata || {}
+                    }
+                }));
             });
 
             socket.on('getMessage', data => {
@@ -524,6 +568,7 @@ const Dashboard = () => {
                 socket.off('connect');
                 socket.off('disconnect');
                 socket.off('getUsers');
+                socket.off('activeUsers');
                 socket.off('getMessage');
                 socket.off('groupCreated');
                 socket.off('addedToGroup');
@@ -531,6 +576,9 @@ const Dashboard = () => {
                 socket.off('removedFromGroup');
                 socket.off('groupMemberRemoved');
                 socket.off('conversationsListUpdated');
+                socket.off('user_online');
+                socket.off('user_offline');
+                socket.off('presence_update');
             };
         }
     }, [socket, user?.id]);
@@ -1263,11 +1311,11 @@ const Dashboard = () => {
                                             if (!conversation) return null;
                                             const { conversationId, user: conversationUser } = conversation;
                                             const isActive = messages?.receiver?.receiverId === conversationUser?.receiverId;
-                                            // Debug log for mapping
-                                            console.log('[ContactList] activeUsers:', activeUsers);
-                                            console.log('[ContactList] Checking contact receiverId:', conversationUser?.receiverId);
-                                            const isOnline = activeUsers.find(x => x.userId === conversationUser?.receiverId);
-                                            console.log(`[ContactList] Contact ${conversationUser?.receiverId} online:`, !!isOnline);
+                                            // Check presence status using new presence system
+                                            const userPresence = presenceData[conversationUser?.receiverId];
+                                            const isOnline = userPresence?.status === 'online';
+                                            console.log(`[ContactList] Contact ${conversationUser?.receiverId} presence:`, userPresence);
+                                            console.log(`[ContactList] Contact ${conversationUser?.receiverId} online:`, isOnline);
                                             return (
                                                 <div
                                                     key={conversationId}
@@ -1288,7 +1336,11 @@ const Dashboard = () => {
                                                     </div>
                                                     <div className="ml-3 flex-1 min-w-0">
                                                         <h3 className={`text-sm font-medium truncate ${isActive ? 'text-primary-700' : 'text-neutral-900'}`}>{contact.user?.fullName}</h3>
-                                                        <p className={`text-xs truncate ${isActive ? 'text-primary-600' : 'text-neutral-500'}`}>{conversation.lastMessage ? conversation.lastMessage.message : (isOnline ? 'Online' : 'Offline')}</p>
+                                                        <p className={`text-xs truncate ${isActive ? 'text-primary-600' : 'text-neutral-500'}`}>
+                                                            {conversation.lastMessage ? conversation.lastMessage.message :
+                                                                (isOnline ? 'Online' :
+                                                                    userPresence?.lastSeen ? `Last seen ${new Date(userPresence.lastSeen).toLocaleTimeString()}` : 'Offline')}
+                                                        </p>
                                                     </div>
                                                 </div>
                                             );
