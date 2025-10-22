@@ -1,4 +1,5 @@
-# Chatter 💬
+
+# Chatter - Real-time Chat Application
 
 A real-time chat app that actually works! Built with modern tech and ready to scale.
 
